@@ -172,19 +172,68 @@ export const FX = {
   particleGravity: 9.8,
 } as const;
 
-export const DUMMY = {
-  hp: 100,
-  respawnTime: 3,
-  hitFlashTime: 0.08,
-  fallTime: 0.35,
-  positions: [
-    { x: -10, z: -8 },
-    { x: -6, z: -10 },
-    { x: 6, z: -10 },
-    { x: 10, z: -8 },
-    { x: -4, z: -27 },
-    { x: 4, z: -30 },
-  ],
+// ------------------------------------------------------------------ player health
+
+export const HEALTH = {
+  max: 100,
+  regenDelay: 5, // seconds without damage before regeneration starts
+  regenRate: 12, // hp per second
+  regenCap: 0.5, // regeneration stops at this fraction of max (medkits go above)
+  respawnDelay: 2.5, // temporary until the game over screen (milestone 4)
+} as const;
+
+// ------------------------------------------------------------------ zombies
+
+export interface ZombieTypeDef {
+  hp: number;
+  /** Chase speed (m/s); wander speed is a fraction of this. */
+  speed: number;
+  damage: number;
+  scale: number;
+  attackCooldown: number;
+}
+
+export const ZOMBIE_TYPES = {
+  walker: { hp: 100, speed: 1.7, damage: 15, scale: 1, attackCooldown: 1.2 },
+} satisfies Record<string, ZombieTypeDef>;
+
+export const ZOMBIE = {
+  maxActive: 40,
+  radius: 0.35,
+  /** Obstacles lower than this are walked over (curbs, pallets, rubble). */
+  stepHeight: 0.5,
+  detectRange: 28,
+  closeDetectRange: 5, // always noticed this close, even without line of sight
+  searchTimeout: 25, // give up a chase/investigation after this long without seeing the player
+  hearRange: 45, // gunshots alert zombies within this range
+  attackRange: 1.3,
+  attackWindup: 0.35,
+  attackRecover: 0.4,
+  thinkInterval: 0.2,
+  whiskerInterval: 0.1,
+  whiskerLength: 1.8,
+  whiskerAngle: 0.6,
+  stuckCheck: 1, // seconds between progress checks
+  stuckDistance: 0.4, // moved less than this per check while chasing → detour
+  detourTime: 1.2,
+  turnSpeed: 7,
+  accel: 8,
+  wanderSpeedMul: 0.35,
+  wanderRadius: 10,
+  idleTime: { min: 2, max: 5 },
+  separation: 0.75, // min distance between zombie centers
+  flashTime: 0.08,
+  staggerTime: 0.15,
+  flinchPush: 0.18,
+  fallTime: 0.55,
+  lieTime: 3,
+  sinkTime: 1.5,
+  groanInterval: { min: 5, max: 12 },
+  groanRange: 40,
+  /** Test scaffolding until waves exist (milestone 7): keep this many zombies alive. */
+  testPopulation: 14,
+  respawnDelay: 4,
+  spawnMinDist: 35,
 } as const;
 
 export const AUDIO = {
@@ -252,10 +301,10 @@ export const COLORS = {
   gunPolymer: 0x5a5c52,
   skin: 0xb98a6a,
   glove: 0x2e2a24,
-  dummyBody: 0xb59a6a,
-  dummyHead: 0xc9ae7c,
-  dummyPost: 0x5a4330,
+  zombieSkin: [0x7d8f6a, 0x8a9478, 0x6f7f62],
+  zombieShirt: [0x5a4a3c, 0x3e4a5a, 0x6a6a5a, 0x5c3a3a, 0x4a5a44],
+  zombiePants: [0x2e3440, 0x3a3228, 0x40403a],
+  blood: 0x7a1010,
   dust: 0x9c968a,
-  straw: 0xd6bf7a,
   tracer: 0xffd9a0,
 } as const;

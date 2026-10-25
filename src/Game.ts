@@ -1,13 +1,14 @@
 import * as THREE from 'three';
-import { CAMERA, DEFAULT_QUALITY, DUMMY, FLASHLIGHT } from './config';
+import { CAMERA, DEFAULT_QUALITY, FLASHLIGHT, HEALTH, ZOMBIE_TYPES } from './config';
 import { HitRegistry } from './combat/Hittable';
-import { TargetDummy } from './combat/TargetDummy';
 import { AudioEngine } from './core/AudioEngine';
 import { EventBus } from './core/EventBus';
 import { Input } from './core/Input';
 import { Time } from './core/Time';
+import { ZombieManager } from './enemies/ZombieManager';
 import { Particles } from './fx/Particles';
 import { Tracers } from './fx/Tracers';
+import { Health } from './player/Health';
 import { PlayerController } from './player/PlayerController';
 import { HUD } from './ui/HUD';
 import { Viewmodel } from './weapons/Viewmodel';
@@ -31,11 +32,14 @@ export class Game {
   readonly viewmodel = new Viewmodel();
   readonly hud = new HUD();
   readonly weapons: WeaponManager;
+  readonly health: Health;
+  readonly zombies: ZombieManager;
 
   private readonly tracers: Tracers;
   private readonly particles: Particles;
-  private readonly dummies: TargetDummy[] = [];
   private readonly flashlight: THREE.SpotLight;
+  private respawnTimer = 0;
+  private readonly fwd = new THREE.Vector3();
   private readonly mouse = { x: 0, y: 0 };
   private readonly debug = new URLSearchParams(location.search).has('debug');
   private readonly debugEl = document.getElementById('debug-info')!;
@@ -53,12 +57,7 @@ export class Game {
     this.lighting = new Lighting(this.scene);
     new MapBuilder(this.scene, this.world).build();
     this.player = new PlayerController(this.world, this.camera);
-
-    for (const p of DUMMY.positions) {
-      const dummy = new TargetDummy(this.scene, p.x, p.z);
-      this.dummies.push(dummy);
-      this.hits.add(dummy);
-    }
+    this.health = new Health(this.events);
 
     this.tracers = new Tracers(this.scene);
     this.particles = new Particles(this.scene);
@@ -73,6 +72,23 @@ export class Game {
       hud: this.hud,
       camera: this.camera,
       scene: this.scene,
+      events: this.events,
+    });
+    this.zombies = new ZombieManager({
+      scene: this.scene,
+      world: this.world,
+      player: this.player,
+      health: this.health,
+      hits: this.hits,
+      audio: this.audio,
+      events: this.events,
+    });
+    this.zombies.populate();
+    this.events.on('playerDamaged', () => this.hud.flashDamage());
+    this.events.on('playerDied', () => {
+      // Temporary until the game over screen (milestone 4): respawn at the base.
+      this.respawnTimer = HEALTH.respawnDelay;
+      this.hud.showNotice('YOU DIED', HEALTH.respawnDelay);
     });
 
     // Toggled via intensity rather than `visible` so the light count (and shaders) never change.
@@ -127,9 +143,15 @@ export class Game {
     const dt = this.time.frameDt;
     this.player.updateCamera();
     this.weapons.frame(dt, this.mouse.x, this.mouse.y);
+    this.zombies.render();
     this.tracers.update(dt);
     this.particles.update(dt);
     this.lighting.follow(this.player.position);
+    this.hud.setHealth(this.health.hp);
+
+    const c = this.camera.position;
+    this.camera.getWorldDirection(this.fwd);
+    this.audio.setListener(c.x, c.y, c.z, this.fwd.x, this.fwd.y, this.fwd.z);
 
     this.renderer.info.reset();
     this.renderer.clear();
@@ -146,9 +168,33 @@ export class Game {
       this.flashlight.intensity = on ? FLASHLIGHT.intensity : 0;
       this.events.emit('flashlightToggled', { on });
     }
-    this.player.update(dt, this.input);
-    this.weapons.tick(dt, this.input);
-    for (const d of this.dummies) d.update(dt);
+    if (this.debug) this.debugKeys();
+
+    if (this.health.dead) {
+      this.respawnTimer -= dt;
+      if (this.respawnTimer <= 0) {
+        this.player.respawn();
+        this.health.reset();
+      }
+    } else {
+      this.player.update(dt, this.input);
+      this.weapons.tick(dt, this.input);
+    }
+    this.health.update(dt);
+    this.zombies.update(dt);
+  }
+
+  /** `?debug` only: F1 god mode, F4 spawn a walker in front of the player. */
+  private debugKeys(): void {
+    if (this.input.wasPressed('F1')) {
+      this.health.godMode = !this.health.godMode;
+      this.hud.showNotice(this.health.godMode ? 'GOD MODE ON' : 'GOD MODE OFF', 1.2);
+    }
+    if (this.input.wasPressed('F4')) {
+      const p = this.player.position;
+      const yaw = this.player.yaw;
+      this.zombies.spawn(ZOMBIE_TYPES.walker, p.x - Math.sin(yaw) * 10, p.z - Math.cos(yaw) * 10);
+    }
   }
 
   private resize(): void {
@@ -166,6 +212,8 @@ export class Game {
     this.debugEl.textContent =
       `FPS ${this.time.fps}  draw calls ${info.calls}  tris ${info.triangles}\n` +
       `pos ${p.x.toFixed(1)} ${p.y.toFixed(2)} ${p.z.toFixed(1)}  ` +
-      `${this.player.grounded ? 'grounded' : 'air'}${this.player.crouching ? ' crouch' : ''}${this.player.sprinting ? ' sprint' : ''}`;
+      `${this.player.grounded ? 'grounded' : 'air'}${this.player.crouching ? ' crouch' : ''}${this.player.sprinting ? ' sprint' : ''}\n` +
+      `zombies ${this.zombies.aliveCount}  ${this.health.godMode ? 'GOD' : ''}\n` +
+      `F1 god mode  F4 spawn zombie`;
   }
 }

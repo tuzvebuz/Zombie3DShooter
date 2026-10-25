@@ -1,6 +1,10 @@
 export interface GameEvents {
   pointerLockChanged: { locked: boolean };
   flashlightToggled: { on: boolean };
+  weaponFired: { x: number; y: number; z: number };
+  playerDamaged: { amount: number; sourceX: number; sourceZ: number };
+  playerDied: Record<string, never>;
+  zombieKilled: { x: number; z: number; headshot: boolean };
 }
 
 type Handler<T> = (payload: T) => void;

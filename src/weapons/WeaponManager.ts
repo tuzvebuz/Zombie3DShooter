@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CAMERA, COLORS, COMBAT, FX, PLAYER } from '../config';
 import { AudioEngine } from '../core/AudioEngine';
+import { EventBus } from '../core/EventBus';
 import { Input } from '../core/Input';
 import { HitRegistry, TargetHit } from '../combat/Hittable';
 import { Particles } from '../fx/Particles';
@@ -30,6 +31,7 @@ export interface WeaponDeps {
   hud: HUD;
   camera: THREE.PerspectiveCamera;
   scene: THREE.Scene;
+  events: EventBus;
 }
 
 export class WeaponManager {
@@ -311,6 +313,7 @@ export class WeaponManager {
     this.muzzleLightTimer = FX.muzzleFlashTime;
 
     d.audio.play(def.sound);
+    d.events.emit('weaponFired', { x: this.eye.x, y: this.eye.y, z: this.eye.z });
     if (anyHit) {
       d.hud.hit(anyKill ? 'kill' : 'hit', anyHead);
       d.audio.play(anyHead ? 'headshot' : anyKill ? 'kill' : 'hit');

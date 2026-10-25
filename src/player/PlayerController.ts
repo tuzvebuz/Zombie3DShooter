@@ -99,6 +99,14 @@ export class PlayerController {
     this.camera.rotation.set(this.viewPitch(), this.yaw + this.recoil.yaw, 0);
   }
 
+  respawn(): void {
+    this.position.set(PLAYER.spawn.x, 0, PLAYER.spawn.z);
+    this.velocity.set(0, 0, 0);
+    this.yaw = this.pitch = 0;
+    this.recoil.pitch = this.recoil.yaw = 0;
+    this.crouching = false;
+  }
+
   getEye(out: THREE.Vector3): THREE.Vector3 {
     return out.set(this.position.x, this.position.y + this.eyeHeight + this.stepSmooth, this.position.z);
   }

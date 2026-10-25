@@ -10,7 +10,7 @@ export class Input {
   constructor(private readonly canvas: HTMLCanvasElement, onLockChange: (locked: boolean) => void) {
     window.addEventListener('keydown', (e) => {
       if (!this.locked) return;
-      if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
+      if (e.code === 'Tab' || e.code === 'Space' || /^F[1-4]$/.test(e.code)) e.preventDefault();
       if (!e.repeat) this.pressed.add(e.code);
       this.down.add(e.code);
     });
