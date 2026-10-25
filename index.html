@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Last Outpost</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game"></canvas>
+      <div id="ui">
+        <div id="crosshair"></div>
+        <div id="debug-info" class="panel hidden"></div>
+        <div id="start-overlay" class="overlay">
+          <div class="panel menu">
+            <h1>LAST OUTPOST</h1>
+            <p class="sub">Milestone 1 — world &amp; movement</p>
+            <button id="start-btn" class="btn">Click to play</button>
+            <ul class="keys">
+              <li><b>WASD</b> move</li>
+              <li><b>Shift</b> sprint</li>
+              <li><b>Space</b> jump</li>
+              <li><b>C</b> crouch (hold)</li>
+              <li><b>F</b> flashlight</li>
+              <li><b>Esc</b> release mouse</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

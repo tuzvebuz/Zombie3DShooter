@@ -1,0 +1,131 @@
+:root {
+  --accent: #ffb02e;
+  --panel: rgba(12, 14, 16, 0.72);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #e8e6e1;
+  --text-dim: #9a978f;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: var(--text);
+  font-family: var(--font);
+  user-select: none;
+}
+
+#app,
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+}
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+#debug-info {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  padding: 6px 10px;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+  white-space: pre;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+
+.menu {
+  padding: 32px 40px;
+  min-width: 320px;
+  text-align: center;
+}
+
+.menu h1 {
+  margin: 0;
+  font-size: 34px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+}
+
+.menu .sub {
+  margin: 6px 0 22px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.btn {
+  font: 600 15px var(--font);
+  color: #111;
+  background: var(--accent);
+  border: none;
+  border-radius: 4px;
+  padding: 10px 26px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  filter: brightness(1.1);
+}
+
+.keys {
+  list-style: none;
+  padding: 0;
+  margin: 22px 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 18px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.keys b {
+  color: var(--text);
+  display: inline-block;
+  min-width: 46px;
+}
