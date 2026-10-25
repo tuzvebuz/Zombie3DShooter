@@ -59,6 +59,12 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
     return free;
   }
 
+  /** Removes every zombie (restart). */
+  clear(): void {
+    for (const z of this.zombies) z.state = 'inactive';
+    this.respawnTimer = 0;
+  }
+
   /** Fills the map up to the test population at the start. */
   populate(): void {
     for (let i = 0; i < ZOMBIE.testPopulation; i++) this.spawnFar();

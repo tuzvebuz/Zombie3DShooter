@@ -33,6 +33,9 @@ export const PLAYER = {
   jumpSpeed: 5.4,
   gravity: 18,
   stepHeight: 0.45,
+  /** While airborne, obstacles whose top is at most this far above the feet are vaulted onto,
+   *  so a jump clears low walls, barriers, sandbags and car hoods (up to ~1.3 m tall). */
+  mantleReach: 0.6,
   eyeSmooth: 14, // eye height smoothing for crouch and step-up (1/s)
   bobPerMeter: 0.36, // head bob cycles per meter traveled
   bobAmount: 0.045,
@@ -179,7 +182,32 @@ export const HEALTH = {
   regenDelay: 5, // seconds without damage before regeneration starts
   regenRate: 12, // hp per second
   regenCap: 0.5, // regeneration stops at this fraction of max (medkits go above)
-  respawnDelay: 2.5, // temporary until the game over screen (milestone 4)
+} as const;
+
+export const STAMINA = {
+  max: 100,
+  sprintDrain: 20, // per second
+  jumpCost: 12,
+  regenDelay: 1, // seconds of rest before regenerating
+  regenRate: 30, // per second
+  exhaustedResume: 0.25, // after hitting 0, sprinting unlocks again at this fraction
+} as const;
+
+export const HUD_FX = {
+  damageIndicatorTime: 1.6,
+  damageIndicators: 4,
+  damageFlashFull: 30, // damage amount that gives a full-strength flash
+  lowHealthStart: 0.5, // persistent vignette fades in below this health fraction
+  feedTime: 3.5,
+  feedMax: 5,
+  deathFallTime: 1.4,
+} as const;
+
+export const SCORE = {
+  kill: 10,
+  headshot: 5,
+  wave: 100,
+  outpost: 250,
 } as const;
 
 // ------------------------------------------------------------------ zombies

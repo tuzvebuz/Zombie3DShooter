@@ -2,7 +2,15 @@ import { AmmoType, START_AMMO } from '../config';
 
 /** Reserve ammo. Stand-in for the inventory until milestone 5 routes this through items. */
 export class AmmoPool {
-  private readonly counts = new Map<AmmoType, number>(Object.entries(START_AMMO) as [AmmoType, number][]);
+  private readonly counts = new Map<AmmoType, number>();
+
+  constructor() {
+    this.reset();
+  }
+
+  reset(): void {
+    for (const [type, n] of Object.entries(START_AMMO) as [AmmoType, number][]) this.counts.set(type, n);
+  }
 
   get(type: AmmoType): number {
     return this.counts.get(type) ?? 0;

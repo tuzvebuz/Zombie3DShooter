@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CAMERA, PLAYER } from '../config';
 import { Input } from '../core/Input';
+import { Stamina } from './Stamina';
 import { AABB, makeAABB } from '../world/AABB';
 import { World } from '../world/World';
 
@@ -32,9 +33,13 @@ export class PlayerController {
   private readonly box: AABB = makeAABB(0, 0, 0, 0, 0, 0);
   private readonly hits: AABB[] = [];
 
+  /** 0..1 while dying: the camera drops to the ground and rolls. */
+  deathFall = 0;
+
   constructor(
     private readonly world: World,
     private readonly camera: THREE.PerspectiveCamera,
+    private readonly stamina: Stamina,
   ) {
     camera.rotation.order = 'YXZ';
   }
@@ -55,7 +60,8 @@ export class PlayerController {
 
     const fwd = (input.isDown('KeyW') ? 1 : 0) - (input.isDown('KeyS') ? 1 : 0);
     const strafe = (input.isDown('KeyD') ? 1 : 0) - (input.isDown('KeyA') ? 1 : 0);
-    this.sprinting = input.isDown('ShiftLeft') && fwd > 0 && !this.crouching && !this.aiming;
+    this.sprinting =
+      input.isDown('ShiftLeft') && fwd > 0 && !this.crouching && !this.aiming && this.stamina.canSprint();
 
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);
@@ -78,7 +84,9 @@ export class PlayerController {
     if (input.wasPressed('Space') && this.grounded && !this.crouching) {
       this.velocity.y = PLAYER.jumpSpeed;
       this.grounded = false;
+      this.stamina.spendJump();
     }
+    this.stamina.update(dt, this.sprinting && Math.hypot(this.velocity.x, this.velocity.z) > 1);
     this.velocity.y -= PLAYER.gravity * dt;
 
     this.moveHorizontal(0, this.velocity.x * dt);
@@ -91,12 +99,13 @@ export class PlayerController {
 
   /** Writes the camera transform; called once per rendered frame. */
   updateCamera(): void {
+    const fall = this.deathFall * this.deathFall * (3 - 2 * this.deathFall);
     this.camera.position.set(
       this.position.x + Math.cos(this.yaw) * this.bobX,
-      this.position.y + this.eyeHeight + this.stepSmooth + this.bobY,
+      this.position.y + (this.eyeHeight - 0.25) * (1 - fall) + 0.25 + this.stepSmooth + this.bobY,
       this.position.z - Math.sin(this.yaw) * this.bobX,
     );
-    this.camera.rotation.set(this.viewPitch(), this.yaw + this.recoil.yaw, 0);
+    this.camera.rotation.set(this.viewPitch() * (1 - fall) + 0.35 * fall, this.yaw + this.recoil.yaw, 0.9 * fall);
   }
 
   respawn(): void {
@@ -105,6 +114,9 @@ export class PlayerController {
     this.yaw = this.pitch = 0;
     this.recoil.pitch = this.recoil.yaw = 0;
     this.crouching = false;
+    this.sprinting = false;
+    this.aiming = false;
+    this.deathFall = 0;
   }
 
   getEye(out: THREE.Vector3): THREE.Vector3 {
@@ -168,7 +180,10 @@ export class PlayerController {
     return free;
   }
 
-  /** axis: 0 = X, 2 = Z. Moves, tries an automatic step-up, otherwise slides along the obstacle. */
+  /**
+   * axis: 0 = X, 2 = Z. Moves, tries to climb the obstacle (a step-up on the ground, a vault onto
+   * it while airborne), otherwise slides along it.
+   */
   private moveHorizontal(axis: 0 | 2, delta: number): void {
     if (delta === 0) return;
     const p = this.position;
@@ -178,11 +193,13 @@ export class PlayerController {
     const hits = this.world.query(this.updateBox(), this.hits);
     if (hits.length === 0) return;
 
-    if (this.sinceGrounded <= PLAYER.coyoteTime && this.velocity.y <= 0.5) {
+    const onGround = this.sinceGrounded <= PLAYER.coyoteTime && this.velocity.y <= 0.5;
+    const maxRise = onGround ? PLAYER.stepHeight : this.grounded ? 0 : PLAYER.mantleReach;
+    if (maxRise > 0) {
       let top = 0;
       for (const h of hits) top = Math.max(top, h.maxY);
       const rise = top - p.y;
-      if (rise > 0 && rise <= PLAYER.stepHeight) {
+      if (rise > 0 && rise <= maxRise) {
         const savedY = p.y;
         p.y = top + COLLIDE_EPS;
         if (this.world.isFree(this.updateBox())) {

@@ -75,6 +75,23 @@ export class WeaponManager {
     return this.weapons[this.index];
   }
 
+  /** Back to the starting loadout (restart). */
+  reset(): void {
+    for (const w of this.weapons) {
+      w.mag = w.def.magSize;
+      w.reloadTimer = 0;
+      w.cooldown = 0;
+      w.spread = w.def.spread.base;
+    }
+    this.ammo.reset();
+    this.index = this.target = 0;
+    this.phase = 'idle';
+    this.switchTimer = 0;
+    this.ads = 0;
+    this.queuedClick = 0;
+    this.d.viewmodel.setWeapon(this.current);
+  }
+
   tick(dt: number, input: Input): void {
     for (let i = 0; i < this.weapons.length; i++) {
       if (input.wasPressed(`Digit${i + 1}`)) this.select(i);

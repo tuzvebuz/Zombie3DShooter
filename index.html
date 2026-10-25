@@ -10,11 +10,24 @@
     <div id="app">
       <canvas id="game"></canvas>
       <div id="ui">
+        <div id="vignette"></div>
         <div id="damage-flash"></div>
+        <div id="damage-dirs"></div>
         <div id="notice" class="hidden"></div>
-        <div id="health-text" class="panel">HP 100</div>
         <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
         <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+        <div id="feed"></div>
+        <div id="vitals" class="panel">
+          <div class="vital-row">
+            <span class="vital-label">HP</span>
+            <div class="bar health"><div id="health-fill" class="fill"></div><div id="regen-cap" class="cap"></div></div>
+            <span id="health-num" class="vital-num">100</span>
+          </div>
+          <div class="vital-row">
+            <span class="vital-label">ST</span>
+            <div id="stamina-bar" class="bar stamina"><div id="stamina-fill" class="fill"></div></div>
+          </div>
+        </div>
         <div id="ammo" class="panel">
           <div class="ammo-count"><span id="ammo-mag">0</span><span class="sep">/</span><span id="ammo-reserve">0</span></div>
           <div id="weapon-name"></div>
@@ -24,12 +37,12 @@
         <div id="start-overlay" class="overlay">
           <div class="panel menu">
             <h1>LAST OUTPOST</h1>
-            <p class="sub">Milestone 3 — zombies</p>
+            <p class="sub" id="start-sub">Milestone 4 — health, stamina &amp; HUD</p>
             <button id="start-btn" class="btn">Click to play</button>
             <ul class="keys">
               <li><b>WASD</b> move</li>
               <li><b>Shift</b> sprint</li>
-              <li><b>Space</b> jump</li>
+              <li><b>Space</b> jump / vault</li>
               <li><b>C</b> crouch (hold)</li>
               <li><b>LMB</b> fire</li>
               <li><b>RMB</b> aim</li>
@@ -37,8 +50,22 @@
               <li><b>1 / 2</b> pistol / rifle</li>
               <li><b>Wheel</b> switch weapon</li>
               <li><b>F</b> flashlight</li>
-              <li><b>Esc</b> release mouse</li>
+              <li><b>Esc</b> pause</li>
             </ul>
+          </div>
+        </div>
+        <div id="gameover" class="overlay hidden">
+          <div class="panel menu">
+            <h1 class="danger">YOU DIED</h1>
+            <p class="sub">The dead have claimed another survivor.</p>
+            <dl class="stats">
+              <dt>Waves survived</dt><dd id="go-waves">0</dd>
+              <dt>Zombies killed</dt><dd id="go-kills">0</dd>
+              <dt>Headshots</dt><dd id="go-headshots">0</dd>
+              <dt>Outposts held</dt><dd id="go-outposts">0</dd>
+              <dt class="score">Score</dt><dd id="go-score" class="score">0</dd>
+            </dl>
+            <button id="restart-btn" class="btn">Restart</button>
           </div>
         </div>
       </div>

@@ -139,20 +139,175 @@ body {
   100% { opacity: 0; scale: 1; }
 }
 
+/* Low-health vignette (opacity driven by JS) and the per-hit flash on top of it. */
+#vignette,
 #damage-flash {
   position: absolute;
   inset: 0;
   opacity: 0;
-  background: radial-gradient(ellipse at center, transparent 45%, rgba(170, 0, 0, 0.55) 100%);
+}
+
+#vignette {
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(120, 0, 0, 0.75) 100%);
+  transition: opacity 0.4s;
+}
+
+#damage-flash {
+  --strength: 1;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(190, 0, 0, 0.6) 100%);
 }
 
 #damage-flash.show {
-  animation: damage-flash 0.5s ease-out forwards;
+  animation: damage-flash 0.55s ease-out forwards;
 }
 
 @keyframes damage-flash {
-  0% { opacity: 1; }
+  0% { opacity: var(--strength); }
   100% { opacity: 0; }
+}
+
+/* Damage direction: arcs on a ring around the crosshair, rotated toward the attacker. */
+#damage-dirs {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+#damage-dirs i {
+  position: absolute;
+  left: -95px;
+  top: -95px;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  border: 6px solid transparent;
+  border-top-color: rgba(255, 40, 30, 0.9);
+  filter: drop-shadow(0 0 4px rgba(255, 0, 0, 0.6));
+  opacity: 0;
+}
+
+/* Kill feed / notifications (right side). */
+#feed {
+  position: absolute;
+  right: 24px;
+  top: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.feed-item {
+  padding: 5px 12px;
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  animation-name: feed-fade;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.feed-item.headshot {
+  color: var(--accent);
+}
+
+.feed-item.info {
+  color: var(--text-dim);
+}
+
+@keyframes feed-fade {
+  0% { opacity: 0; transform: translateX(12px); }
+  6% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Health + stamina (bottom left). */
+#vitals {
+  position: absolute;
+  left: 24px;
+  bottom: 24px;
+  width: 280px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vital-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vital-label {
+  width: 18px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.vital-num {
+  min-width: 30px;
+  text-align: right;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.bar.stamina {
+  height: 6px;
+}
+
+.bar .fill {
+  height: 100%;
+  width: 100%;
+  transition: width 0.15s;
+}
+
+.bar.health .fill {
+  background: #e8e6e1;
+}
+
+.bar.health .fill.low {
+  background: #ff5a4a;
+}
+
+/* Marks the 50% regeneration cap. */
+.bar .cap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.bar.stamina .fill {
+  background: var(--accent);
+  transition: width 0.08s linear;
+}
+
+.bar.stamina.exhausted .fill {
+  background: #7a6a50;
+  animation: exhausted 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes exhausted {
+  from { opacity: 1; }
+  to { opacity: 0.45; }
 }
 
 #notice {
@@ -165,20 +320,6 @@ body {
   letter-spacing: 0.2em;
   color: #ff5a4a;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
-}
-
-#health-text {
-  position: absolute;
-  left: 24px;
-  bottom: 24px;
-  padding: 8px 14px;
-  font-size: 22px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-#health-text.low {
-  color: #ff5a4a;
 }
 
 /* Ammo + weapon (bottom right). */
@@ -297,4 +438,41 @@ body {
   color: var(--text);
   display: inline-block;
   min-width: 46px;
+}
+
+.menu h1.danger {
+  color: #ff5a4a;
+}
+
+/* Game over stats. */
+.stats {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 32px;
+  margin: 0 0 24px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.stats dt {
+  color: var(--text-dim);
+}
+
+.stats dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats .score {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-border);
+  font-size: 18px;
+  color: var(--accent);
+}
+
+#gameover {
+  background: rgba(30, 0, 0, 0.55);
 }
