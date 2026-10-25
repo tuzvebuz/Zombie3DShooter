@@ -10,18 +10,29 @@
     <div id="app">
       <canvas id="game"></canvas>
       <div id="ui">
-        <div id="crosshair"></div>
+        <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+        <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+        <div id="ammo" class="panel">
+          <div class="ammo-count"><span id="ammo-mag">0</span><span class="sep">/</span><span id="ammo-reserve">0</span></div>
+          <div id="weapon-name"></div>
+          <div id="weapon-hint"></div>
+        </div>
         <div id="debug-info" class="panel hidden"></div>
         <div id="start-overlay" class="overlay">
           <div class="panel menu">
             <h1>LAST OUTPOST</h1>
-            <p class="sub">Milestone 1 — world &amp; movement</p>
+            <p class="sub">Milestone 2 — gunplay</p>
             <button id="start-btn" class="btn">Click to play</button>
             <ul class="keys">
               <li><b>WASD</b> move</li>
               <li><b>Shift</b> sprint</li>
               <li><b>Space</b> jump</li>
               <li><b>C</b> crouch (hold)</li>
+              <li><b>LMB</b> fire</li>
+              <li><b>RMB</b> aim</li>
+              <li><b>R</b> reload</li>
+              <li><b>1 / 2</b> pistol / rifle</li>
+              <li><b>Wheel</b> switch weapon</li>
               <li><b>F</b> flashlight</li>
               <li><b>Esc</b> release mouse</li>
             </ul>

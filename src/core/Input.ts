@@ -5,6 +5,7 @@ export class Input {
   private pressed = new Set<string>();
   private mouseDx = 0;
   private mouseDy = 0;
+  private wheel = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement, onLockChange: (locked: boolean) => void) {
     window.addEventListener('keydown', (e) => {
@@ -28,6 +29,14 @@ export class Input {
       this.down.add(code);
     });
     window.addEventListener('mouseup', (e) => this.down.delete(`Mouse${e.button}`));
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.locked && e.deltaY !== 0) this.wheel += Math.sign(e.deltaY);
+      },
+      { passive: true },
+    );
 
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
@@ -53,6 +62,13 @@ export class Input {
 
   endTick(): void {
     this.pressed.clear();
+  }
+
+  /** Accumulated wheel notches since the last call (positive = scroll down). */
+  consumeWheel(): number {
+    const w = this.wheel;
+    this.wheel = 0;
+    return w;
   }
 
   consumeMouse(out: { x: number; y: number }): void {

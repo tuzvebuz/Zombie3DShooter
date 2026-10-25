@@ -27,6 +27,7 @@ export const PLAYER = {
   walkSpeed: 4.6,
   sprintMul: 1.65,
   crouchMul: 0.5,
+  adsMul: 0.6,
   groundAccel: 14, // exponential approach rate toward target velocity (1/s)
   airAccel: 2.5,
   jumpSpeed: 5.4,
@@ -44,6 +45,152 @@ export const CAMERA = {
   near: 0.05,
   far: 400,
   sensitivity: 0.0022, // radians per mouse pixel at sensitivity 1
+} as const;
+
+// ------------------------------------------------------------------ weapons
+
+export type AmmoType = 'rifle' | 'shells';
+export type GunSound = 'pistol' | 'rifle';
+
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface WeaponDef {
+  name: string;
+  auto: boolean;
+  rpm: number;
+  damage: number;
+  magSize: number;
+  reloadTime: number;
+  pellets: number;
+  range: number;
+  /** null = infinite reserve. */
+  ammo: AmmoType | null;
+  sound: GunSound;
+  /** All spread values are cone half-angles in radians; recovery is radians per second. */
+  spread: { base: number; perShot: number; moveAdd: number; airAdd: number; adsMul: number; crouchMul: number; max: number; recovery: number };
+  recoil: { kickPitch: number; kickYawRange: number; recoverySpeed: number };
+  adsFov: number;
+  adsTime: number;
+  /** Viewmodel: model origin is the front sight tip, so the ADS pose puts it on the screen center. */
+  hipPos: Vec3;
+  adsPos: Vec3;
+  muzzle: Vec3;
+  kickBack: number;
+  kickRot: number;
+}
+
+export const WEAPONS = {
+  pistol: {
+    name: 'Pistol',
+    auto: false,
+    rpm: 420,
+    damage: 28,
+    magSize: 12,
+    reloadTime: 1.4,
+    pellets: 1,
+    range: 120,
+    ammo: null,
+    sound: 'pistol',
+    spread: { base: 0.006, perShot: 0.018, moveAdd: 0.02, airAdd: 0.05, adsMul: 0.35, crouchMul: 0.75, max: 0.07, recovery: 0.12 },
+    recoil: { kickPitch: 0.022, kickYawRange: 0.008, recoverySpeed: 9 },
+    adsFov: 65,
+    adsTime: 0.16,
+    hipPos: { x: 0.17, y: -0.16, z: -0.58 },
+    adsPos: { x: 0, y: 0, z: -0.55 },
+    muzzle: { x: 0, y: -0.025, z: -0.02 },
+    kickBack: 0.05,
+    kickRot: 0.14,
+  },
+  assaultRifle: {
+    name: 'Assault Rifle',
+    auto: true,
+    rpm: 650,
+    damage: 22,
+    magSize: 30,
+    reloadTime: 2.1,
+    pellets: 1,
+    range: 200,
+    ammo: 'rifle',
+    sound: 'rifle',
+    spread: { base: 0.008, perShot: 0.006, moveAdd: 0.03, airAdd: 0.07, adsMul: 0.3, crouchMul: 0.7, max: 0.06, recovery: 0.15 },
+    recoil: { kickPitch: 0.008, kickYawRange: 0.005, recoverySpeed: 7 },
+    adsFov: 55,
+    adsTime: 0.22,
+    hipPos: { x: 0.16, y: -0.15, z: -0.7 },
+    adsPos: { x: 0, y: 0, z: -0.8 },
+    muzzle: { x: 0, y: -0.04, z: -0.17 },
+    kickBack: 0.035,
+    kickRot: 0.06,
+  },
+} satisfies Record<string, WeaponDef>;
+
+export const COMBAT = {
+  headMul: 2,
+  recoilRecoverDelay: 0.08, // recoil only recovers after this long without firing
+  maxRecoilPitch: 0.3,
+  sprintOutDelay: 0.15,
+  switchLowerTime: 0.15,
+  switchRaiseTime: 0.25,
+  semiAutoBuffer: 0.12, // a click this early before the cooldown ends still fires
+  crosshairMinGap: 4,
+} as const;
+
+/** Temporary starting reserve until the inventory exists (milestone 5). */
+export const START_AMMO: Record<AmmoType, number> = {
+  rifle: 120,
+  shells: 0,
+};
+
+export const VIEWMODEL = {
+  fov: 60,
+  swayPerPixel: 0.00035,
+  swayMax: 0.035,
+  swaySmooth: 10,
+  adsSwayMul: 0.25,
+  adsBobMul: 0.15,
+  kickRecover: 16,
+  sprintPos: { x: 0.04, y: -0.06, z: 0.02 },
+  sprintRot: { x: -0.35, y: 0.7 },
+  reloadDip: 0.08,
+  reloadTilt: 0.7,
+  switchDrop: 0.3,
+  sprintBlend: 8,
+} as const;
+
+export const FX = {
+  muzzleFlashTime: 0.045,
+  muzzleLightIntensity: 15,
+  muzzleLightDistance: 10,
+  tracerSpeed: 400,
+  tracerLength: 4,
+  tracerPool: 32,
+  particlePool: 256,
+  particleGravity: 9.8,
+} as const;
+
+export const DUMMY = {
+  hp: 100,
+  respawnTime: 3,
+  hitFlashTime: 0.08,
+  fallTime: 0.35,
+  positions: [
+    { x: -10, z: -8 },
+    { x: -6, z: -10 },
+    { x: 6, z: -10 },
+    { x: 10, z: -8 },
+    { x: -4, z: -27 },
+    { x: 4, z: -30 },
+  ],
+} as const;
+
+export const AUDIO = {
+  master: 0.8,
+  sfx: 0.9,
+  maxVoices: 24,
 } as const;
 
 export const FLASHLIGHT = {
@@ -100,4 +247,15 @@ export const COLORS = {
   core: 0x3d4a52,
   coreGlow: 0xffb02e,
   sandbag: 0x8f8160,
+  gunMetal: 0x4a4e54,
+  gunDark: 0x2c2e31,
+  gunPolymer: 0x5a5c52,
+  skin: 0xb98a6a,
+  glove: 0x2e2a24,
+  dummyBody: 0xb59a6a,
+  dummyHead: 0xc9ae7c,
+  dummyPost: 0x5a4330,
+  dust: 0x9c968a,
+  straw: 0xd6bf7a,
+  tracer: 0xffd9a0,
 } as const;

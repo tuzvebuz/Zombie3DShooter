@@ -48,16 +48,143 @@ body {
   backdrop-filter: blur(4px);
 }
 
+/* Dynamic crosshair: four ticks pushed out by --gap (driven by weapon spread). */
 #crosshair {
+  --gap: 6px;
+  --len: 8px;
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 4px;
-  height: 4px;
-  margin: -2px 0 0 -2px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+  width: 0;
+  height: 0;
+  transition: opacity 0.1s;
+}
+
+#crosshair i {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+#crosshair .t,
+#crosshair .b {
+  width: 2px;
+  height: var(--len);
+  left: -1px;
+}
+
+#crosshair .l,
+#crosshair .r {
+  width: var(--len);
+  height: 2px;
+  top: -1px;
+}
+
+#crosshair .t { bottom: var(--gap); }
+#crosshair .b { top: var(--gap); }
+#crosshair .l { right: var(--gap); }
+#crosshair .r { left: var(--gap); }
+
+#crosshair.hidden-soft {
+  opacity: 0;
+}
+
+/* Hitmarker: diagonal X around the crosshair. White on hit, larger red on kill. */
+#hitmarker {
+  --size: 9px;
+  --off: 6px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+}
+
+#hitmarker i {
+  position: absolute;
+  width: var(--size);
+  height: 2px;
+  margin: -1px 0 0 calc(var(--size) / -2);
+  background: #fff;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+
+#hitmarker i:nth-child(1) { transform: rotate(45deg) translateX(calc(var(--off) + var(--size) / 2)); }
+#hitmarker i:nth-child(2) { transform: rotate(135deg) translateX(calc(var(--off) + var(--size) / 2)); }
+#hitmarker i:nth-child(3) { transform: rotate(225deg) translateX(calc(var(--off) + var(--size) / 2)); }
+#hitmarker i:nth-child(4) { transform: rotate(315deg) translateX(calc(var(--off) + var(--size) / 2)); }
+
+#hitmarker.show {
+  animation: hitmarker 0.22s ease-out forwards;
+}
+
+#hitmarker.kill {
+  --size: 13px;
+  --off: 8px;
+  animation-duration: 0.4s;
+}
+
+#hitmarker.kill i {
+  background: #ff3b30;
+}
+
+#hitmarker.head i {
+  height: 3px;
+}
+
+@keyframes hitmarker {
+  0% { opacity: 1; scale: 1.25; }
+  60% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1; }
+}
+
+/* Ammo + weapon (bottom right). */
+#ammo {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  min-width: 170px;
+  padding: 10px 16px 10px;
+  text-align: right;
+}
+
+.ammo-count {
+  font-size: 34px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.ammo-count .sep {
+  margin: 0 6px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+#ammo-reserve {
+  font-size: 20px;
+  color: var(--text-dim);
+}
+
+#ammo-mag.low {
+  color: #ff5a4a;
+}
+
+#weapon-name {
+  margin-top: 6px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+#weapon-hint {
+  min-height: 15px;
+  margin-top: 2px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
 }
 
 #debug-info {

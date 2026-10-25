@@ -5,6 +5,8 @@ export class Time {
   elapsed = 0;
   timeScale = 1;
   fps = 0;
+  /** Scaled real time of the last frame, for purely visual updates. */
+  frameDt = 0;
 
   private accumulator = 0;
   private last = -1;
@@ -25,7 +27,8 @@ export class Time {
       this.fpsTimer = 0;
     }
 
-    this.accumulator += frameDt * this.timeScale;
+    this.frameDt = frameDt * this.timeScale;
+    this.accumulator += this.frameDt;
     let steps = 0;
     while (this.accumulator >= this.dt && steps < SIM.maxSubSteps) {
       this.accumulator -= this.dt;

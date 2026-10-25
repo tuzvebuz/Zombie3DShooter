@@ -16,7 +16,11 @@ export class PlayerController {
   grounded = false;
   crouching = false;
   sprinting = false;
-  /** Current head-bob offsets, also consumed by the viewmodel later. */
+  /** Set by the weapon manager; aiming slows movement and cancels sprint. */
+  aiming = false;
+  /** Recoil view offset, applied on top of the mouse look and recovered by the weapons. */
+  readonly recoil = { pitch: 0, yaw: 0 };
+  /** Current head-bob offsets, also consumed by the viewmodel. */
   bobX = 0;
   bobY = 0;
 
@@ -51,7 +55,7 @@ export class PlayerController {
 
     const fwd = (input.isDown('KeyW') ? 1 : 0) - (input.isDown('KeyS') ? 1 : 0);
     const strafe = (input.isDown('KeyD') ? 1 : 0) - (input.isDown('KeyA') ? 1 : 0);
-    this.sprinting = input.isDown('ShiftLeft') && fwd > 0 && !this.crouching;
+    this.sprinting = input.isDown('ShiftLeft') && fwd > 0 && !this.crouching && !this.aiming;
 
     const sin = Math.sin(this.yaw);
     const cos = Math.cos(this.yaw);
@@ -62,7 +66,10 @@ export class PlayerController {
       wx /= len;
       wz /= len;
     }
-    const speed = PLAYER.walkSpeed * (this.sprinting ? PLAYER.sprintMul : this.crouching ? PLAYER.crouchMul : 1);
+    const speed =
+      PLAYER.walkSpeed *
+      (this.sprinting ? PLAYER.sprintMul : this.crouching ? PLAYER.crouchMul : 1) *
+      (this.aiming ? PLAYER.adsMul : 1);
     const accel = this.grounded ? PLAYER.groundAccel : PLAYER.airAccel;
     const a = 1 - Math.exp(-accel * dt);
     this.velocity.x += (wx * speed - this.velocity.x) * a;
@@ -89,7 +96,29 @@ export class PlayerController {
       this.position.y + this.eyeHeight + this.stepSmooth + this.bobY,
       this.position.z - Math.sin(this.yaw) * this.bobX,
     );
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+    this.camera.rotation.set(this.viewPitch(), this.yaw + this.recoil.yaw, 0);
+  }
+
+  getEye(out: THREE.Vector3): THREE.Vector3 {
+    return out.set(this.position.x, this.position.y + this.eyeHeight + this.stepSmooth, this.position.z);
+  }
+
+  /** Forward/right/up of the current view, including recoil. */
+  getAimBasis(fwd: THREE.Vector3, right: THREE.Vector3, up: THREE.Vector3): void {
+    const yaw = this.yaw + this.recoil.yaw;
+    const pitch = this.viewPitch();
+    const sy = Math.sin(yaw);
+    const cy = Math.cos(yaw);
+    const sp = Math.sin(pitch);
+    const cp = Math.cos(pitch);
+    fwd.set(-sy * cp, sp, -cy * cp);
+    right.set(cy, 0, -sy);
+    up.set(sy * sp, cp, cy * sp);
+  }
+
+  private viewPitch(): number {
+    const limit = Math.PI / 2 - 0.01;
+    return Math.max(-limit, Math.min(limit, this.pitch + this.recoil.pitch));
   }
 
   private updateEye(dt: number): void {
