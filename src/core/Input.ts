@@ -45,10 +45,10 @@ export class Input {
     });
   }
 
-  requestLock(): void {
-    // Browsers reject re-locking for ~1 s after Esc; the user can simply click again.
+  /** `onFail` runs if the browser refuses (re-locking right after Esc, or without a user gesture). */
+  requestLock(onFail?: () => void): void {
     const result = this.canvas.requestPointerLock() as Promise<void> | undefined;
-    result?.catch(() => {});
+    result?.catch(() => onFail?.());
   }
 
   isDown(code: string): boolean {

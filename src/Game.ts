@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAMERA, DEFAULT_QUALITY, FLASHLIGHT, HUD_FX, ZOMBIE_TYPES } from './config';
+import { CAMERA, DEFAULT_QUALITY, FLASHLIGHT, HUD_FX, ITEMS, ItemId, ZOMBIE_TYPES } from './config';
 import { HitRegistry } from './combat/Hittable';
 import { AudioEngine } from './core/AudioEngine';
 import { EventBus } from './core/EventBus';
@@ -9,18 +9,26 @@ import { Time } from './core/Time';
 import { ZombieManager } from './enemies/ZombieManager';
 import { Particles } from './fx/Particles';
 import { Tracers } from './fx/Tracers';
+import { Inventory } from './inventory/Inventory';
+import { Pickups } from './inventory/Pickups';
+import { LootManager } from './loot/LootManager';
 import { Health } from './player/Health';
 import { PlayerController } from './player/PlayerController';
 import { Stamina } from './player/Stamina';
 import { HUD } from './ui/HUD';
+import { InventoryUI } from './ui/InventoryUI';
+import { Grenades } from './weapons/Grenades';
 import { Viewmodel } from './weapons/Viewmodel';
 import { WeaponManager } from './weapons/WeaponManager';
 import { Lighting } from './world/Lighting';
 import { MapBuilder } from './world/MapBuilder';
 import { World } from './world/World';
 
-/** start → playing ⇄ paused; playing → dying → gameOver → (restart) → playing. */
-type GameState = 'start' | 'playing' | 'paused' | 'dying' | 'gameOver';
+/**
+ * start → playing ⇄ paused; playing ⇄ inventory (the world keeps running);
+ * playing → dying → gameOver → (restart) → playing.
+ */
+type GameState = 'start' | 'playing' | 'paused' | 'inventory' | 'dying' | 'gameOver';
 
 /** Pause before the game over screen appears once the death fall has finished. */
 const GAME_OVER_DELAY = 0.6;
@@ -44,6 +52,11 @@ export class Game {
   readonly weapons: WeaponManager;
   readonly health: Health;
   readonly zombies: ZombieManager;
+  readonly inventory = new Inventory();
+  readonly pickups: Pickups;
+  readonly loot: LootManager;
+  readonly grenades: Grenades;
+  readonly inventoryUI: InventoryUI;
 
   private state: GameState = 'start';
   private deathTimer = 0;
@@ -66,12 +79,35 @@ export class Game {
     this.scene.add(this.camera);
 
     this.lighting = new Lighting(this.scene);
-    new MapBuilder(this.scene, this.world).build();
+    const map = new MapBuilder(this.scene, this.world);
+    map.build();
     this.player = new PlayerController(this.world, this.camera, this.stamina);
     this.health = new Health(this.events);
+    this.inventory.reset();
 
     this.tracers = new Tracers(this.scene);
     this.particles = new Particles(this.scene);
+    this.zombies = new ZombieManager({
+      scene: this.scene,
+      world: this.world,
+      player: this.player,
+      health: this.health,
+      hits: this.hits,
+      audio: this.audio,
+      events: this.events,
+    });
+    this.zombies.populate();
+    this.grenades = new Grenades({
+      scene: this.scene,
+      world: this.world,
+      zombies: this.zombies,
+      player: this.player,
+      health: this.health,
+      particles: this.particles,
+      audio: this.audio,
+      hud: this.hud,
+      events: this.events,
+    });
     this.weapons = new WeaponManager({
       player: this.player,
       world: this.world,
@@ -84,20 +120,36 @@ export class Game {
       camera: this.camera,
       scene: this.scene,
       events: this.events,
+      inventory: this.inventory,
+      grenades: this.grenades,
+      health: this.health,
     });
-    this.zombies = new ZombieManager({
+    this.pickups = new Pickups(this.scene, (id, n) => {
+      this.hud.pushFeed(`+${n} ${ITEMS[id].name}`, 'info');
+      this.audio.play('pickup');
+    });
+    this.loot = new LootManager({
       scene: this.scene,
       world: this.world,
-      player: this.player,
-      health: this.health,
-      hits: this.hits,
+      map,
+      inventory: this.inventory,
+      pickups: this.pickups,
+      hud: this.hud,
       audio: this.audio,
-      events: this.events,
     });
-    this.zombies.populate();
+    this.inventoryUI = new InventoryUI(this.inventory, {
+      use: (slot) => {
+        if (this.inventory.slots[slot]?.id === 'medkit') this.weapons.useMedkit();
+      },
+      drop: (slot, all) => this.dropFromSlot(slot, all),
+      close: () => this.closeInventory(),
+      click: () => this.audio.play('uiClick'),
+    });
 
     this.events.on('playerDamaged', (e) => this.hud.damage(e.amount, e.sourceX, e.sourceZ));
     this.events.on('playerDied', () => {
+      if (this.inventoryUI.isOpen) this.inventoryUI.close();
+      this.hud.setPrompt('', 0);
       this.state = 'dying';
       this.deathTimer = 0;
     });
@@ -105,6 +157,7 @@ export class Game {
       this.stats.kills++;
       if (e.headshot) this.stats.headshots++;
       this.hud.pushFeed(e.headshot ? 'Walker killed — HEADSHOT' : 'Walker killed', e.headshot ? 'headshot' : 'kill');
+      this.pickups.rollZombieDrop(e.x, e.y, e.z);
     });
 
     // Toggled via intensity rather than `visible` so the light count (and shaders) never change.
@@ -153,11 +206,54 @@ export class Game {
       if (this.state === 'start' || this.state === 'paused') this.state = 'playing';
     } else if (this.state === 'playing') {
       this.state = 'paused';
-      document.getElementById('start-sub')!.textContent = 'Paused';
-      document.getElementById('start-btn')!.textContent = 'Resume';
+      this.setPausedText();
     }
     this.overlay.classList.toggle('hidden', this.state !== 'start' && this.state !== 'paused');
     this.events.emit('pointerLockChanged', { locked });
+  }
+
+  private setPausedText(): void {
+    document.getElementById('start-sub')!.textContent = 'Paused';
+    document.getElementById('start-btn')!.textContent = 'Resume';
+  }
+
+  /** The pointer is released for the inventory screen; the world keeps running meanwhile. */
+  private openInventory(): void {
+    this.state = 'inventory';
+    this.hud.setPrompt('', 0);
+    this.weapons.blocked = false;
+    this.inventoryUI.open();
+    this.audio.play('uiClick');
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  private closeInventory(): void {
+    if (this.state !== 'inventory') return;
+    this.inventoryUI.close();
+    this.audio.play('uiClick');
+    // 'paused' until the lock is granted; if the browser refuses (e.g. closed with Esc, which
+    // doesn't count as a user gesture), the pause overlay lets a click resume.
+    this.state = 'paused';
+    this.setPausedText();
+    this.input.requestLock(() => {
+      if (this.state === 'paused') this.overlay.classList.remove('hidden');
+    });
+  }
+
+  private dropFromSlot(slot: number, all: boolean): void {
+    let id: ItemId | null = null;
+    let count = 1;
+    if (all) {
+      const s = this.inventory.removeSlot(slot);
+      if (s) ({ id, count } = s);
+    } else {
+      id = this.inventory.takeOne(slot);
+    }
+    if (!id) return;
+    const p = this.player.position;
+    const yaw = this.player.yaw;
+    this.pickups.spawn(id, count, p.x - Math.sin(yaw) * 0.6, p.y, p.z - Math.cos(yaw) * 0.6, false);
+    this.audio.play('uiClick');
   }
 
   private enterGameOver(): void {
@@ -176,6 +272,10 @@ export class Game {
     this.stamina.reset();
     this.weapons.reset();
     this.stats.reset();
+    this.inventory.reset();
+    this.pickups.clear();
+    this.grenades.clear();
+    this.loot.respawnAll();
     // Becomes 'playing' once the pointer lock is granted; if the browser refuses the immediate
     // re-lock, the overlay stays up so a click resumes.
     this.state = 'paused';
@@ -187,7 +287,7 @@ export class Game {
   // ------------------------------------------------------------------ loop
 
   private frame(now: number): void {
-    const running = this.state === 'playing' || this.state === 'dying';
+    const running = this.state === 'playing' || this.state === 'dying' || this.state === 'inventory';
     this.time.timeScale = running ? 1 : 0;
     const steps = this.time.beginFrame(now);
 
@@ -202,11 +302,15 @@ export class Game {
 
     const dt = this.time.frameDt;
     const alive = this.state !== 'dying' && this.state !== 'gameOver';
-    this.player.updateCamera();
+    this.player.updateCamera(dt);
     if (alive) this.weapons.frame(dt, this.mouse.x, this.mouse.y);
     this.zombies.render();
+    this.pickups.render();
+    this.grenades.render(dt);
     this.tracers.update(dt);
     this.particles.update(dt);
+    this.inventoryUI.refresh();
+    this.hud.setResources(this.inventory.count('wood'), this.inventory.count('scrap'));
     this.lighting.follow(this.player.position);
     this.hud.setVitals(this.health.hp, this.health.fraction, this.stamina.fraction, this.stamina.exhausted);
     this.hud.update(dt, this.player.position.x, this.player.position.z, this.player.yaw);
@@ -231,7 +335,15 @@ export class Game {
       this.deathTimer += dt;
       this.player.deathFall = Math.min(1, this.deathTimer / HUD_FX.deathFallTime);
       if (this.deathTimer >= HUD_FX.deathFallTime + GAME_OVER_DELAY) this.enterGameOver();
+    } else if (this.state === 'inventory') {
+      // No input reaches the player while the pointer is free; this just lets them come to a stop.
+      this.player.update(dt, this.input);
+      this.pickups.update(dt, this.player.position, this.inventory);
     } else {
+      if (this.input.wasPressed('Tab')) {
+        this.openInventory();
+        return;
+      }
       if (this.input.wasPressed('KeyF')) {
         const on = this.flashlight.intensity === 0;
         this.flashlight.intensity = on ? FLASHLIGHT.intensity : 0;
@@ -239,17 +351,25 @@ export class Game {
       }
       if (this.debug) this.debugKeys();
       this.player.update(dt, this.input);
+      this.loot.update(dt, this.input, this.player.position, this.player.yaw, true);
+      this.weapons.blocked = this.loot.searching;
       this.weapons.tick(dt, this.input);
+      this.pickups.update(dt, this.player.position, this.inventory);
     }
     this.health.update(dt);
     this.zombies.update(dt);
+    this.grenades.update(dt);
   }
 
-  /** `?debug` only: F1 god mode, F4 spawn a walker in front of the player. */
+  /** `?debug` only: F1 god mode, F2 +100 of every item, F4 spawn a walker in front of the player. */
   private debugKeys(): void {
     if (this.input.wasPressed('F1')) {
       this.health.godMode = !this.health.godMode;
       this.hud.showNotice(this.health.godMode ? 'GOD MODE ON' : 'GOD MODE OFF', 1.2);
+    }
+    if (this.input.wasPressed('F2')) {
+      for (const id of Object.keys(ITEMS) as ItemId[]) this.inventory.add(id, 100);
+      this.hud.showNotice('+100 OF EVERYTHING', 1.2);
     }
     if (this.input.wasPressed('F4')) {
       const p = this.player.position;
@@ -275,6 +395,6 @@ export class Game {
       `pos ${p.x.toFixed(1)} ${p.y.toFixed(2)} ${p.z.toFixed(1)}  ` +
       `${this.player.grounded ? 'grounded' : 'air'}${this.player.crouching ? ' crouch' : ''}${this.player.sprinting ? ' sprint' : ''}\n` +
       `zombies ${this.zombies.aliveCount}  state ${this.state}  ${this.health.godMode ? 'GOD' : ''}\n` +
-      `F1 god mode  F4 spawn zombie`;
+      `F1 god mode  F2 +100 items  F4 spawn zombie`;
   }
 }

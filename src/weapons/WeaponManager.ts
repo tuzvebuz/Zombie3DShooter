@@ -1,18 +1,21 @@
 import * as THREE from 'three';
-import { CAMERA, COLORS, COMBAT, FX, PLAYER } from '../config';
+import { CAMERA, COLORS, COMBAT, FX, GRENADE, ITEMS, MEDKIT, PLAYER } from '../config';
 import { AudioEngine } from '../core/AudioEngine';
 import { EventBus } from '../core/EventBus';
 import { Input } from '../core/Input';
 import { HitRegistry, TargetHit } from '../combat/Hittable';
 import { Particles } from '../fx/Particles';
 import { Tracers } from '../fx/Tracers';
+import { Inventory } from '../inventory/Inventory';
+import { Health } from '../player/Health';
 import { PlayerController } from '../player/PlayerController';
 import { HUD } from '../ui/HUD';
 import { Ray, RayHit } from '../world/Ray';
 import { World } from '../world/World';
-import { AmmoPool } from './AmmoPool';
 import { AssaultRifle } from './AssaultRifle';
+import { Grenades } from './Grenades';
 import { Pistol } from './Pistol';
+import { Shotgun } from './Shotgun';
 import { Viewmodel } from './Viewmodel';
 import { Weapon } from './Weapon';
 
@@ -32,18 +35,27 @@ export interface WeaponDeps {
   camera: THREE.PerspectiveCamera;
   scene: THREE.Scene;
   events: EventBus;
+  inventory: Inventory;
+  grenades: Grenades;
+  health: Health;
 }
 
 export class WeaponManager {
-  readonly weapons: Weapon[] = [new Pistol(), new AssaultRifle()];
-  readonly ammo = new AmmoPool();
+  readonly weapons: Weapon[] = [new Pistol(), new AssaultRifle(), new Shotgun()];
   /** Global damage multiplier (workbench upgrades, milestone 6). */
   damageMul = 1;
+  /** Set from outside while the hands are needed for something else (searching loot). */
+  blocked = false;
 
   private index = 0;
   private target = 0;
   private phase: SwitchPhase = 'idle';
   private switchTimer = 0;
+  /** Weapon lowered for a throw or a medkit. */
+  private busy = 0;
+  private busyTime = 0;
+  private grenadeCooldown = 0;
+  private blockedLower = 0;
   private ads = 0;
   private sprintOut = 0;
   private sinceShot = 99;
@@ -83,13 +95,55 @@ export class WeaponManager {
       w.cooldown = 0;
       w.spread = w.def.spread.base;
     }
-    this.ammo.reset();
     this.index = this.target = 0;
     this.phase = 'idle';
     this.switchTimer = 0;
+    this.busy = this.busyTime = this.grenadeCooldown = 0;
     this.ads = 0;
     this.queuedClick = 0;
     this.d.viewmodel.setWeapon(this.current);
+  }
+
+  /** Quick-use (Q) or inventory Use. Returns true if a medkit was consumed. */
+  useMedkit(): boolean {
+    const d = this.d;
+    if (d.health.dead) return false;
+    if (d.inventory.count('medkit') === 0) {
+      d.hud.showNotice('NO MEDKITS', 1);
+      return false;
+    }
+    if (d.health.fraction >= 1) {
+      d.hud.showNotice('HEALTH FULL', 1);
+      return false;
+    }
+    d.inventory.take('medkit', 1);
+    d.health.heal(MEDKIT.heal);
+    this.occupy(MEDKIT.useTime);
+    d.audio.play('medkit');
+    d.hud.pushFeed(`${ITEMS.medkit.name} used`, 'info');
+    return true;
+  }
+
+  private throwGrenade(): void {
+    const d = this.d;
+    if (this.busy > 0 || this.grenadeCooldown > 0 || this.phase !== 'idle') return;
+    if (d.inventory.count('grenade') === 0) {
+      d.hud.showNotice('NO GRENADES', 1);
+      return;
+    }
+    d.player.getEye(this.eye);
+    d.player.getAimBasis(this.fwd, this.right, this.up);
+    if (!d.grenades.throw(this.eye, this.fwd, d.player.velocity)) return;
+    d.inventory.take('grenade', 1);
+    this.grenadeCooldown = GRENADE.cooldown;
+    this.occupy(GRENADE.throwTime);
+    d.audio.play('grenadeThrow');
+  }
+
+  /** Lowers the weapon (and blocks it) for `seconds`; cancels a reload. */
+  private occupy(seconds: number): void {
+    this.busy = this.busyTime = seconds;
+    this.current.reloadTimer = 0;
   }
 
   tick(dt: number, input: Input): void {
@@ -102,10 +156,15 @@ export class WeaponManager {
       this.select((this.target + (wheel > 0 ? 1 : -1) + n) % n);
     }
     this.updateSwitch(dt);
+    this.busy = Math.max(0, this.busy - dt);
+    this.grenadeCooldown = Math.max(0, this.grenadeCooldown - dt);
+    if (input.wasPressed('KeyG') && !this.blocked) this.throwGrenade();
+    if (input.wasPressed('KeyQ') && !this.blocked) this.useMedkit();
 
     const w = this.current;
     const p = this.d.player;
-    p.aiming = input.isDown('Mouse2') && this.phase === 'idle';
+    const free = this.phase === 'idle' && this.busy <= 0 && !this.blocked;
+    p.aiming = input.isDown('Mouse2') && free;
 
     if (p.sprinting) {
       this.sprintOut = COMBAT.sprintOutDelay;
@@ -126,7 +185,7 @@ export class WeaponManager {
       this.startReload();
     }
 
-    const ready = this.phase === 'idle' && !w.reloading && this.sprintOut <= 0 && !p.sprinting;
+    const ready = free && !w.reloading && this.sprintOut <= 0 && !p.sprinting;
     if (w.def.auto) {
       if (input.isDown('Mouse0') && ready) {
         while (w.cooldown <= 0 && w.mag > 0) this.fire();
@@ -159,6 +218,7 @@ export class WeaponManager {
     const p = this.d.player;
     const cam = this.d.camera;
     const a = smoothstep(this.ads);
+    this.blockedLower += ((this.blocked ? 0.6 : 0) - this.blockedLower) * (1 - Math.exp(-12 * dt));
 
     const fov = CAMERA.fov + (w.def.adsFov - CAMERA.fov) * a;
     if (Math.abs(cam.fov - fov) > 0.01) {
@@ -188,6 +248,14 @@ export class WeaponManager {
     else if (w.mag === 0 && reserve === 0) hint = 'NO AMMO';
     else if (w.mag <= Math.ceil(w.def.magSize * 0.25)) hint = '[R] RELOAD';
     this.d.hud.setHint(hint);
+
+    const inv = this.d.inventory;
+    this.d.hud.setHotbar(
+      this.target,
+      this.weapons.map((wp) => this.reserve(wp)),
+      inv.count('grenade'),
+      inv.count('medkit'),
+    );
 
     if (this.muzzleLightTimer > 0) {
       this.muzzleLightTimer -= dt;
@@ -221,20 +289,23 @@ export class WeaponManager {
   }
 
   private lowered(): number {
-    if (this.phase === 'lowering') return 1 - this.switchTimer / COMBAT.switchLowerTime;
-    if (this.phase === 'raising') return this.switchTimer / COMBAT.switchRaiseTime;
-    return 0;
+    let switching = 0;
+    if (this.phase === 'lowering') switching = 1 - this.switchTimer / COMBAT.switchLowerTime;
+    else if (this.phase === 'raising') switching = this.switchTimer / COMBAT.switchRaiseTime;
+    // Busy: dip down and come back up over the busy time; searching keeps it half lowered.
+    const busy = this.busyTime > 0 ? Math.sin((1 - this.busy / this.busyTime) * Math.PI) * 0.8 : 0;
+    return Math.max(switching, busy, this.blockedLower);
   }
 
   private reserve(w: Weapon): number | null {
-    return w.def.ammo === null ? null : this.ammo.get(w.def.ammo);
+    return w.def.ammo === null ? null : this.d.inventory.count(w.def.ammo);
   }
 
   private startReload(): void {
     const w = this.current;
     const reserve = this.reserve(w);
     if (w.reloading || w.mag >= w.def.magSize || reserve === 0) return;
-    if (this.d.player.sprinting || this.phase !== 'idle') return;
+    if (this.d.player.sprinting || this.phase !== 'idle' || this.busy > 0 || this.blocked) return;
     w.reloadTimer = w.def.reloadTime;
     this.d.audio.play('reloadStart');
   }
@@ -242,7 +313,7 @@ export class WeaponManager {
   private finishReload(w: Weapon): void {
     w.reloadTimer = 0;
     const need = w.def.magSize - w.mag;
-    w.mag += w.def.ammo === null ? need : this.ammo.take(w.def.ammo, need);
+    w.mag += w.def.ammo === null ? need : this.d.inventory.take(w.def.ammo, need);
     this.d.audio.play('reloadEnd');
   }
 

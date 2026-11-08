@@ -10,10 +10,17 @@ export type SoundName =
   | 'hit'
   | 'kill'
   | 'headshot'
-  | 'playerHurt';
+  | 'playerHurt'
+  | 'shotgun'
+  | 'grenadeThrow'
+  | 'medkit'
+  | 'lootStart'
+  | 'lootDone'
+  | 'pickup'
+  | 'uiClick';
 
 /** Sounds that come from a point in the world and are panned/attenuated in 3D. */
-export type PositionalSoundName = 'groan' | 'zombieAttack' | 'zombieHit' | 'zombieDeath';
+export type PositionalSoundName = 'groan' | 'zombieAttack' | 'zombieHit' | 'zombieDeath' | 'explosion' | 'grenadeBounce';
 
 /** All sounds are synthesized with WebAudio: oscillators plus a cached white-noise buffer. */
 export class AudioEngine {
@@ -110,6 +117,33 @@ export class AudioEngine {
         this.tone(now, out, 'sine', 140, 60, 0.18, 0.8);
         duration = this.noiseBurst(now, out, 'lowpass', 900, 0.15, 0.5);
         break;
+      case 'shotgun':
+        this.gunshot(now, out, 900, 0.3, 95, 1.15);
+        // Pump: two clacks after the shot.
+        this.noiseBurst(now + 0.38, out, 'bandpass', 1400, 0.05, 0.35);
+        duration = this.noiseBurst(now + 0.52, out, 'bandpass', 2200, 0.05, 0.35) + 0.52;
+        break;
+      case 'grenadeThrow':
+        this.noiseBurst(now, out, 'highpass', 5000, 0.03, 0.3); // pin
+        duration = this.noiseBurst(now + 0.08, out, 'bandpass', 700, 0.18, 0.25) + 0.08; // whoosh
+        break;
+      case 'medkit':
+        this.noiseBurst(now, out, 'bandpass', 3500, 0.12, 0.25);
+        duration = this.tone(now + 0.15, out, 'sine', 660, 990, 0.25, 0.18) + 0.15;
+        break;
+      case 'lootStart':
+        duration = this.noiseBurst(now, out, 'bandpass', 1100, 0.25, 0.2);
+        break;
+      case 'lootDone':
+        this.noiseBurst(now, out, 'bandpass', 900, 0.12, 0.3);
+        duration = this.tone(now + 0.05, out, 'triangle', 520, 780, 0.12, 0.2) + 0.05;
+        break;
+      case 'pickup':
+        duration = this.tone(now, out, 'triangle', 700, 1100, 0.08, 0.2);
+        break;
+      case 'uiClick':
+        duration = this.tone(now, out, 'square', 1800, 1500, 0.025, 0.06);
+        break;
     }
     this.voiceEnds.push(now + duration);
   }
@@ -149,6 +183,16 @@ export class AudioEngine {
         break;
       case 'zombieDeath':
         duration = this.groan(now, panner, 110 * pitch, 1.1, 0.45, 0.45);
+        break;
+      case 'explosion':
+        panner.refDistance = 12;
+        panner.maxDistance = 150;
+        this.noiseBurst(now, panner, 'lowpass', 3000, 0.25, 1.4);
+        this.noiseBurst(now, panner, 'lowpass', 400, 1.1, 1.6);
+        duration = this.tone(now, panner, 'sine', 90, 28, 0.9, 1.4);
+        break;
+      case 'grenadeBounce':
+        duration = this.tone(now, panner, 'triangle', 1500, 1200, 0.05, 0.25);
         break;
     }
     this.voiceEnds.push(now + duration);
@@ -211,6 +255,7 @@ export class AudioEngine {
     const ctx = this.ctx!;
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
+    src.loop = true; // long bursts (explosions) outlast the 1 s buffer
     const filter = ctx.createBiquadFilter();
     filter.type = type;
     filter.frequency.value = freq;

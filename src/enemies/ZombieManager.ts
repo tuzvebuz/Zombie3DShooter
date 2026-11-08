@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WORLD, ZOMBIE, ZombieTypeDef, ZOMBIE_TYPES } from '../config';
+import { GRENADE, WORLD, ZOMBIE, ZombieTypeDef, ZOMBIE_TYPES } from '../config';
 import { AudioEngine } from '../core/AudioEngine';
 import { EventBus } from '../core/EventBus';
 import { HitRegistry } from '../combat/Hittable';
@@ -32,6 +32,8 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
   private respawnTimer = 0;
   private readonly ray: Ray = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 };
   private readonly rayHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+  private readonly blastCenter = new THREE.Vector3();
+  private readonly blastDir = new THREE.Vector3();
 
   constructor(private readonly d: ZombieDeps) {
     this.world = d.world;
@@ -43,6 +45,25 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
       d.hits.add(z);
     }
     d.events.on('weaponFired', ({ x, z }) => this.alertNear(x, z, ZOMBIE.hearRange));
+    d.events.on('explosion', ({ x, z }) => this.alertNear(x, z, GRENADE.hearRange));
+  }
+
+  /** Radial damage with linear falloff; zombies behind cover are spared. */
+  blast(x: number, y: number, z: number, radius: number, damage: number): { hits: number; kills: number } {
+    let hits = 0;
+    let kills = 0;
+    const c = this.blastCenter;
+    for (const zb of this.zombies) {
+      if (!zb.alive) continue;
+      c.set(zb.pos.x, zb.pos.y + 0.9 * zb.type.scale, zb.pos.z);
+      const dist = Math.hypot(c.x - x, c.y - y, c.z - z);
+      if (dist >= radius || !this.lineOfSight(x, y + 0.2, z, c)) continue;
+      const h = Math.hypot(c.x - x, c.z - z);
+      this.blastDir.set(h > 0.01 ? (c.x - x) / h : 0, 0, h > 0.01 ? (c.z - z) / h : 0);
+      hits++;
+      if (zb.applyHit(damage * (1 - dist / radius), false, this.blastDir)) kills++;
+    }
+    return { hits, kills };
   }
 
   get aliveCount(): number {
@@ -115,7 +136,7 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
 
   onKilled(z: Zombie, headshot: boolean): void {
     this.d.audio.playAt('zombieDeath', z.head.x, z.head.y, z.head.z, this.pitchOf(z));
-    this.d.events.emit('zombieKilled', { x: z.pos.x, z: z.pos.z, headshot });
+    this.d.events.emit('zombieKilled', { x: z.pos.x, y: z.pos.y, z: z.pos.z, headshot });
   }
 
   onDespawn(): void {

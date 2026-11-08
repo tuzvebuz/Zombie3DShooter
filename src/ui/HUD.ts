@@ -1,4 +1,4 @@
-import { HEALTH, HUD_FX } from '../config';
+import { HEALTH, HUD_FX, ITEMS, ItemId } from '../config';
 import { Stats } from '../core/Stats';
 
 export type HitmarkerKind = 'hit' | 'kill';
@@ -30,6 +30,15 @@ export class HUD {
   private readonly staminaBar = byId('stamina-bar');
   private readonly feed = byId('feed');
   private readonly gameOver = byId('gameover');
+  private readonly interact = byId('interact');
+  private readonly interactText = byId('interact-text');
+  private readonly interactRing = byId('interact-ring');
+  private readonly hotbarSlots = Array.from(document.querySelectorAll<HTMLElement>('#hotbar .hb-weapon'));
+  private readonly hotbarAmmo = Array.from(document.querySelectorAll<HTMLElement>('#hotbar .hb-weapon .hb-count'));
+  private readonly hotbarGrenades = byId('hb-grenades');
+  private readonly hotbarMedkits = byId('hb-medkits');
+  private readonly resWood = byId('res-wood');
+  private readonly resScrap = byId('res-scrap');
 
   private readonly indicators: DamageIndicator[];
   private nextIndicator = 0;
@@ -43,6 +52,10 @@ export class HUD {
   private staminaShown = -1;
   private exhaustedShown = false;
   private vignetteShown = -1;
+  private promptShown = '';
+  private progressShown = -1;
+  private hotbarKey = '';
+  private resKey = '';
 
   constructor() {
     const dirs = byId('damage-dirs');
@@ -52,6 +65,9 @@ export class HUD {
       return { el, x: 0, z: 0, timer: 0 };
     });
     byId('regen-cap').style.left = `${HEALTH.regenCap * 100}%`;
+    for (const el of document.querySelectorAll<HTMLElement>('.res-icon')) {
+      el.style.setProperty('--c', ITEMS[el.dataset.item as ItemId].color);
+    }
   }
 
   // ------------------------------------------------------------------ crosshair & weapon
@@ -91,6 +107,46 @@ export class HUD {
     if (text === this.hint) return;
     this.hint = text;
     this.weaponHint.textContent = text;
+  }
+
+  /** Weapon slots with their reserve ammo (null = infinite), plus grenade and medkit counts. */
+  setHotbar(active: number, reserves: (number | null)[], grenades: number, medkits: number): void {
+    const key = `${active}|${reserves.join(',')}|${grenades}|${medkits}`;
+    if (key === this.hotbarKey) return;
+    this.hotbarKey = key;
+    this.hotbarSlots.forEach((el, i) => el.classList.toggle('active', i === active));
+    this.hotbarAmmo.forEach((el, i) => {
+      const r = reserves[i];
+      el.textContent = r === null || r === undefined ? '∞' : String(r);
+      el.classList.toggle('empty', r === 0);
+    });
+    this.hotbarGrenades.textContent = String(grenades);
+    this.hotbarGrenades.parentElement!.classList.toggle('empty', grenades === 0);
+    this.hotbarMedkits.textContent = String(medkits);
+    this.hotbarMedkits.parentElement!.classList.toggle('empty', medkits === 0);
+  }
+
+  setResources(wood: number, scrap: number): void {
+    const key = `${wood}|${scrap}`;
+    if (key === this.resKey) return;
+    this.resKey = key;
+    this.resWood.textContent = String(wood);
+    this.resScrap.textContent = String(scrap);
+  }
+
+  /** Interaction prompt below the crosshair; `progress` 0..1 fills the hold ring. Empty text hides it. */
+  setPrompt(text: string, progress: number): void {
+    if (text !== this.promptShown) {
+      this.promptShown = text;
+      this.interactText.textContent = text;
+      this.interact.classList.toggle('hidden', text === '');
+    }
+    const p = Math.round(Math.min(1, progress) * 100) / 100;
+    if (p !== this.progressShown) {
+      this.progressShown = p;
+      this.interactRing.style.strokeDashoffset = String(1 - p);
+      this.interact.classList.toggle('holding', p > 0);
+    }
   }
 
   // ------------------------------------------------------------------ vitals & damage

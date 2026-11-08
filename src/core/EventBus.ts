@@ -4,7 +4,8 @@ export interface GameEvents {
   weaponFired: { x: number; y: number; z: number };
   playerDamaged: { amount: number; sourceX: number; sourceZ: number };
   playerDied: Record<string, never>;
-  zombieKilled: { x: number; z: number; headshot: boolean };
+  zombieKilled: { x: number; y: number; z: number; headshot: boolean };
+  explosion: { x: number; y: number; z: number };
 }
 
 type Handler<T> = (payload: T) => void;

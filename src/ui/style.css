@@ -476,3 +476,289 @@ body {
 #gameover {
   background: rgba(30, 0, 0, 0.55);
 }
+
+/* Interaction prompt + hold ring (below the crosshair). */
+#interact {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 46px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 6px;
+  border-radius: 20px;
+  background: var(--panel);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+#interact .ring {
+  width: 26px;
+  height: 26px;
+  transform: rotate(-90deg);
+}
+
+#interact .ring circle {
+  fill: none;
+  stroke-width: 4;
+}
+
+#interact .track {
+  stroke: rgba(255, 255, 255, 0.15);
+}
+
+#interact .prog {
+  stroke: var(--accent);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+#interact.holding #interact-text {
+  color: var(--accent);
+}
+
+/* Resource counters (top right). */
+#resources {
+  position: absolute;
+  right: 24px;
+  top: 24px;
+  display: flex;
+  gap: 16px;
+  padding: 7px 14px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.res {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.res b {
+  color: var(--text);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.res-icon {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--c);
+}
+
+/* Hotbar (bottom center). */
+#hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+}
+
+.hb-slot {
+  position: relative;
+  width: 76px;
+  padding: 16px 8px 6px;
+  border-radius: 5px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  text-align: center;
+}
+
+.hb-item {
+  width: 64px;
+}
+
+.hb-slot.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.hb-key {
+  position: absolute;
+  left: 6px;
+  top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.hb-name {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.hb-slot.active .hb-name {
+  color: var(--accent);
+}
+
+.hb-count {
+  display: block;
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hb-count.empty,
+.hb-slot.empty .hb-count {
+  color: #ff5a4a;
+}
+
+.hb-item.empty {
+  opacity: 0.55;
+}
+
+/* Inventory screen. */
+#inventory {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+#inv-panel {
+  padding: 18px 20px 14px;
+}
+
+.inv-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.inv-head h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+}
+
+.inv-close,
+.inv-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.inv-hint {
+  margin: 12px 0 0;
+}
+
+#inv-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 64px);
+  gap: 6px;
+}
+
+.slot {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+}
+
+.slot.filled {
+  cursor: grab;
+}
+
+.slot.filled:hover {
+  border-color: rgba(255, 176, 46, 0.6);
+}
+
+.slot.dragging > * {
+  opacity: 0.3;
+}
+
+.item-icon {
+  position: absolute;
+  inset: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 100%, #fff 18%), color-mix(in srgb, var(--c) 100%, #000 35%));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(0, 0, 0, 0.6);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.item-count {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px #000;
+}
+
+#inv-ghost {
+  position: fixed;
+  width: 52px;
+  height: 52px;
+  pointer-events: none;
+}
+
+#inv-ghost .item-icon {
+  inset: 0;
+}
+
+#inv-tooltip {
+  position: fixed;
+  max-width: 240px;
+  padding: 8px 12px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+#inv-tooltip b {
+  color: var(--accent);
+}
+
+#inv-tooltip .tt-count {
+  float: right;
+  margin-left: 12px;
+  color: var(--text-dim);
+}
+
+#inv-tooltip p {
+  margin: 4px 0;
+}
+
+#inv-tooltip small {
+  color: var(--text-dim);
+}
+
+#inv-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-width: 120px;
+}
+
+#inv-menu button {
+  font: 13px var(--font);
+  color: var(--text);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#inv-menu button:hover {
+  background: rgba(255, 176, 46, 0.2);
+  color: var(--accent);
+}

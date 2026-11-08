@@ -50,10 +50,104 @@ export const CAMERA = {
   sensitivity: 0.0022, // radians per mouse pixel at sensitivity 1
 } as const;
 
+// ------------------------------------------------------------------ items & inventory
+
+export type ItemId = 'wood' | 'scrap' | 'rifleAmmo' | 'shells' | 'medkit' | 'grenade';
+
+export interface ItemDef {
+  name: string;
+  /** Glyph drawn on the CSS icon. */
+  short: string;
+  color: string;
+  maxStack: number;
+  /** Can be used from the inventory (right-click → Use). */
+  usable: boolean;
+  desc: string;
+}
+
+export const ITEMS: Record<ItemId, ItemDef> = {
+  wood: { name: 'Wood', short: 'WD', color: '#9a6b3c', maxStack: 50, usable: false, desc: 'Building material.' },
+  scrap: { name: 'Scrap Metal', short: 'SC', color: '#8d949b', maxStack: 50, usable: false, desc: 'Building and upgrade material.' },
+  rifleAmmo: { name: 'Rifle Ammo', short: '5.56', color: '#c9a640', maxStack: 120, usable: false, desc: 'Ammunition for the assault rifle.' },
+  shells: { name: 'Shells', short: '12G', color: '#b8432f', maxStack: 32, usable: false, desc: 'Ammunition for the shotgun.' },
+  medkit: { name: 'Medkit', short: '+', color: '#d8d4cc', maxStack: 5, usable: true, desc: 'Heals 50 HP, also above the regeneration cap. Quick-use: Q.' },
+  grenade: { name: 'Frag Grenade', short: 'FG', color: '#5d6b45', maxStack: 5, usable: false, desc: 'Thrown with G. Explodes after 3 seconds.' },
+};
+
+export const INVENTORY = {
+  slots: 20,
+} as const;
+
+export const START_ITEMS: [ItemId, number][] = [
+  ['rifleAmmo', 90],
+  ['shells', 12],
+  ['medkit', 1],
+  ['grenade', 2],
+];
+
+export const MEDKIT = {
+  heal: 50,
+  useTime: 0.8, // weapon is lowered this long while applying it
+} as const;
+
+export interface LootRoll {
+  id: ItemId;
+  min: number;
+  max: number;
+  chance: number;
+}
+
+export type LootKind = 'crate' | 'car' | 'woodPile';
+
+export const LOOT = {
+  holdTime: 1.5,
+  /** How well the view has to point at a loot point (cos of the max angle, horizontal). */
+  aimDot: 0.55,
+  counts: { crate: 22, woodPile: 16 },
+  carFraction: 0.6, // share of car wrecks that can be searched
+  baseWoodPiles: 3, // extra wood piles in the base clearing for the first night
+  reach: { crate: 1.9, car: 3.1, woodPile: 2.1 } as Record<LootKind, number>,
+  label: { crate: 'Search crate', car: 'Search car', woodPile: 'Gather wood' } as Record<LootKind, string>,
+  tables: {
+    crate: [
+      { id: 'rifleAmmo', min: 15, max: 30, chance: 0.7 },
+      { id: 'shells', min: 4, max: 8, chance: 0.5 },
+      { id: 'scrap', min: 2, max: 5, chance: 0.5 },
+      { id: 'medkit', min: 1, max: 1, chance: 0.3 },
+      { id: 'grenade', min: 1, max: 1, chance: 0.25 },
+    ],
+    car: [
+      { id: 'scrap', min: 4, max: 10, chance: 1 },
+      { id: 'rifleAmmo', min: 10, max: 20, chance: 0.3 },
+      { id: 'shells', min: 2, max: 6, chance: 0.3 },
+      { id: 'medkit', min: 1, max: 1, chance: 0.15 },
+    ],
+    woodPile: [
+      { id: 'wood', min: 6, max: 12, chance: 1 },
+      { id: 'scrap', min: 1, max: 2, chance: 0.2 },
+    ],
+  } as Record<LootKind, LootRoll[]>,
+} as const;
+
+export const PICKUP = {
+  pool: 48,
+  collectRadius: 1.3,
+  lifetime: 90,
+  size: 0.26,
+  zombieDropChance: 0.35,
+  /** One entry is picked by weight when a zombie drops something. */
+  zombieDrops: [
+    { id: 'rifleAmmo', min: 6, max: 12, weight: 4 },
+    { id: 'shells', min: 2, max: 4, weight: 2 },
+    { id: 'scrap', min: 1, max: 3, weight: 2 },
+    { id: 'wood', min: 1, max: 3, weight: 2 },
+  ] as { id: ItemId; min: number; max: number; weight: number }[],
+} as const;
+
 // ------------------------------------------------------------------ weapons
 
-export type AmmoType = 'rifle' | 'shells';
-export type GunSound = 'pistol' | 'rifle';
+export type AmmoType = 'rifleAmmo' | 'shells';
+export type GunSound = 'pistol' | 'rifle' | 'shotgun';
 
 interface Vec3 {
   x: number;
@@ -117,7 +211,7 @@ export const WEAPONS = {
     reloadTime: 2.1,
     pellets: 1,
     range: 200,
-    ammo: 'rifle',
+    ammo: 'rifleAmmo',
     sound: 'rifle',
     spread: { base: 0.008, perShot: 0.006, moveAdd: 0.03, airAdd: 0.07, adsMul: 0.3, crouchMul: 0.7, max: 0.06, recovery: 0.15 },
     recoil: { kickPitch: 0.008, kickYawRange: 0.005, recoverySpeed: 7 },
@@ -129,7 +223,49 @@ export const WEAPONS = {
     kickBack: 0.035,
     kickRot: 0.06,
   },
+  shotgun: {
+    name: 'Shotgun',
+    auto: false,
+    rpm: 72, // pump action
+    damage: 15, // per pellet
+    magSize: 6,
+    reloadTime: 2.6,
+    pellets: 9,
+    range: 45,
+    ammo: 'shells',
+    sound: 'shotgun',
+    spread: { base: 0.055, perShot: 0.01, moveAdd: 0.015, airAdd: 0.03, adsMul: 0.7, crouchMul: 0.9, max: 0.075, recovery: 0.08 },
+    recoil: { kickPitch: 0.055, kickYawRange: 0.012, recoverySpeed: 6 },
+    adsFov: 68,
+    adsTime: 0.24,
+    hipPos: { x: 0.17, y: -0.15, z: -0.8 },
+    adsPos: { x: 0, y: 0, z: -0.9 },
+    muzzle: { x: 0, y: -0.022, z: -0.06 },
+    kickBack: 0.09,
+    kickRot: 0.2,
+  },
 } satisfies Record<string, WeaponDef>;
+
+export const GRENADE = {
+  fuse: 3,
+  throwSpeed: 15,
+  throwUp: 3.5,
+  gravity: 18,
+  radius: 0.07,
+  bounce: 0.38, // velocity kept along the hit axis
+  friction: 0.65, // horizontal velocity kept on each ground bounce
+  cooldown: 0.9,
+  throwTime: 0.45, // weapon lowered while throwing
+  pool: 6,
+  blastRadius: 7,
+  damage: 240, // at the center, linear falloff to 0 at the edge
+  playerDamage: 90,
+  shakeRadius: 22,
+  shake: 0.12,
+  flashTime: 0.35,
+  lightIntensity: 60,
+  hearRange: 70,
+} as const;
 
 export const COMBAT = {
   headMul: 2,
@@ -142,11 +278,6 @@ export const COMBAT = {
   crosshairMinGap: 4,
 } as const;
 
-/** Temporary starting reserve until the inventory exists (milestone 5). */
-export const START_AMMO: Record<AmmoType, number> = {
-  rifle: 120,
-  shells: 0,
-};
 
 export const VIEWMODEL = {
   fov: 60,
@@ -314,6 +445,12 @@ export const COLORS = {
   ruin: 0x7a7266,
   rubble: 0x6e675d,
   crate: 0x8a6a3e,
+  lootCrate: 0x6f7f4a,
+  lootLog: 0x8a5e36,
+  lootTrunk: 0x9a7a3a,
+  looted: 0x55534f,
+  grenade: 0x4c5a3a,
+  explosion: 0xffa040,
   barrier: 0xa8a49a,
   carBodies: [0x6b2f2a, 0x34485c, 0x5c5a3a, 0x444444, 0x7a6a50],
   carGlass: 0x1e2a30,

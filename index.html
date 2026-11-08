@@ -17,6 +17,24 @@
         <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
         <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
         <div id="feed"></div>
+        <div id="interact" class="hidden">
+          <svg class="ring" viewBox="0 0 40 40">
+            <circle class="track" cx="20" cy="20" r="16" />
+            <circle id="interact-ring" class="prog" cx="20" cy="20" r="16" pathLength="1" />
+          </svg>
+          <span id="interact-text"></span>
+        </div>
+        <div id="resources" class="panel">
+          <span class="res"><i class="res-icon" data-item="wood"></i>Wood <b id="res-wood">0</b></span>
+          <span class="res"><i class="res-icon" data-item="scrap"></i>Scrap <b id="res-scrap">0</b></span>
+        </div>
+        <div id="hotbar">
+          <div class="hb-slot hb-weapon"><span class="hb-key">1</span><span class="hb-name">Pistol</span><span class="hb-count">∞</span></div>
+          <div class="hb-slot hb-weapon"><span class="hb-key">2</span><span class="hb-name">Rifle</span><span class="hb-count">0</span></div>
+          <div class="hb-slot hb-weapon"><span class="hb-key">3</span><span class="hb-name">Shotgun</span><span class="hb-count">0</span></div>
+          <div class="hb-slot hb-item"><span class="hb-key">G</span><span class="hb-name">Grenade</span><span id="hb-grenades" class="hb-count">0</span></div>
+          <div class="hb-slot hb-item"><span class="hb-key">Q</span><span class="hb-name">Medkit</span><span id="hb-medkits" class="hb-count">0</span></div>
+        </div>
         <div id="vitals" class="panel">
           <div class="vital-row">
             <span class="vital-label">HP</span>
@@ -37,7 +55,7 @@
         <div id="start-overlay" class="overlay">
           <div class="panel menu">
             <h1>LAST OUTPOST</h1>
-            <p class="sub" id="start-sub">Milestone 4 — health, stamina &amp; HUD</p>
+            <p class="sub" id="start-sub">Milestone 5 — inventory &amp; looting</p>
             <button id="start-btn" class="btn">Click to play</button>
             <ul class="keys">
               <li><b>WASD</b> move</li>
@@ -47,12 +65,26 @@
               <li><b>LMB</b> fire</li>
               <li><b>RMB</b> aim</li>
               <li><b>R</b> reload</li>
-              <li><b>1 / 2</b> pistol / rifle</li>
+              <li><b>1 / 2 / 3</b> pistol / rifle / shotgun</li>
               <li><b>Wheel</b> switch weapon</li>
+              <li><b>E</b> search (hold)</li>
+              <li><b>G</b> grenade</li>
+              <li><b>Q</b> medkit</li>
+              <li><b>Tab</b> inventory</li>
               <li><b>F</b> flashlight</li>
               <li><b>Esc</b> pause</li>
             </ul>
           </div>
+        </div>
+        <div id="inventory" class="overlay hidden">
+          <div id="inv-panel" class="panel">
+            <div class="inv-head"><h2>INVENTORY</h2><span class="inv-close">Tab / Esc to close</span></div>
+            <div id="inv-grid"></div>
+            <p class="inv-hint">Drag to move or stack · drag outside to drop · right-click for options</p>
+          </div>
+          <div id="inv-tooltip" class="panel hidden"></div>
+          <div id="inv-menu" class="panel hidden"></div>
+          <div id="inv-ghost" class="hidden"></div>
         </div>
         <div id="gameover" class="overlay hidden">
           <div class="panel menu">

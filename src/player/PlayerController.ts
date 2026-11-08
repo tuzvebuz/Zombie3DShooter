@@ -35,6 +35,8 @@ export class PlayerController {
 
   /** 0..1 while dying: the camera drops to the ground and rolls. */
   deathFall = 0;
+  /** Camera shake amplitude in radians (explosions); decays on its own. */
+  private shake = 0;
 
   constructor(
     private readonly world: World,
@@ -97,18 +99,26 @@ export class PlayerController {
     this.updateEye(dt);
   }
 
+  addShake(amount: number): void {
+    this.shake = Math.min(0.25, this.shake + amount);
+  }
+
   /** Writes the camera transform; called once per rendered frame. */
-  updateCamera(): void {
+  updateCamera(dt: number): void {
+    this.shake *= Math.exp(-7 * dt);
+    const shakeX = (Math.random() - 0.5) * this.shake;
+    const shakeY = (Math.random() - 0.5) * this.shake;
     const fall = this.deathFall * this.deathFall * (3 - 2 * this.deathFall);
     this.camera.position.set(
       this.position.x + Math.cos(this.yaw) * this.bobX,
       this.position.y + (this.eyeHeight - 0.25) * (1 - fall) + 0.25 + this.stepSmooth + this.bobY,
       this.position.z - Math.sin(this.yaw) * this.bobX,
     );
-    this.camera.rotation.set(this.viewPitch() * (1 - fall) + 0.35 * fall, this.yaw + this.recoil.yaw, 0.9 * fall);
+    this.camera.rotation.set(this.viewPitch() * (1 - fall) + 0.35 * fall + shakeX, this.yaw + this.recoil.yaw + shakeY, 0.9 * fall);
   }
 
   respawn(): void {
+    this.shake = 0;
     this.position.set(PLAYER.spawn.x, 0, PLAYER.spawn.z);
     this.velocity.set(0, 0, 0);
     this.yaw = this.pitch = 0;

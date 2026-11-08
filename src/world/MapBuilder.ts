@@ -12,11 +12,29 @@ interface Range {
 
 const FLOOR_HEIGHT = 3.2;
 
+export interface BlockArea {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export interface CarSpot {
+  x: number;
+  z: number;
+  /** Long axis along Z. */
+  vertical: boolean;
+}
+
 /**
  * Builds the town procedurally (seeded, so always the same layout). All static boxes are
  * collected per color and merged into one mesh per material to keep draw calls low.
  */
 export class MapBuilder {
+  /** Town blocks (raised sidewalk plates) and car wrecks, used to place loot points. */
+  readonly blocks: BlockArea[] = [];
+  readonly cars: CarSpot[] = [];
+
   private readonly rng = new Rng(WORLD.seed);
   private readonly parts = new Map<number, THREE.BufferGeometry[]>();
   private readonly flats = new Map<number, THREE.BufferGeometry[]>();
@@ -145,6 +163,7 @@ export class MapBuilder {
     const cx = (rx.min + rx.max) / 2;
     const cz = (rz.min + rz.max) / 2;
     this.solid(cx, 0, cz, rx.max - rx.min, curb, rz.max - rz.min, COLORS.sidewalk);
+    this.blocks.push({ minX: rx.min, maxX: rx.max, minZ: rz.min, maxZ: rz.max });
 
     // Split each block into 2×2 lots with a 1.5 m sidewalk margin.
     const margin = 1.5;
@@ -326,6 +345,7 @@ export class MapBuilder {
     const offset = this.rng.range(-0.3, 0.3);
     this.solid(x, 0, z, lx, 1.05, lz, body);
     this.solid(vertical ? x : x + offset, 1.05, vertical ? z + offset : z, cx, 0.6, cz, COLORS.carGlass);
+    this.cars.push({ x, z, vertical });
   }
 
   /** Concrete barriers partially blocking the roads that lead into the base clearing. */
