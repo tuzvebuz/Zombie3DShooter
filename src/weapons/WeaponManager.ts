@@ -14,6 +14,7 @@ import { Ray, RayHit } from '../world/Ray';
 import { World } from '../world/World';
 import { AssaultRifle } from './AssaultRifle';
 import { Grenades } from './Grenades';
+import { Hammer } from './Hammer';
 import { Pistol } from './Pistol';
 import { Shotgun } from './Shotgun';
 import { Viewmodel } from './Viewmodel';
@@ -41,7 +42,7 @@ export interface WeaponDeps {
 }
 
 export class WeaponManager {
-  readonly weapons: Weapon[] = [new Pistol(), new AssaultRifle(), new Shotgun()];
+  readonly weapons: Weapon[] = [new Pistol(), new AssaultRifle(), new Shotgun(), new Hammer()];
   /** Global damage multiplier (workbench upgrades, milestone 6). */
   damageMul = 1;
   /** Set from outside while the hands are needed for something else (searching loot). */
@@ -104,6 +105,17 @@ export class WeaponManager {
     this.d.viewmodel.setWeapon(this.current);
   }
 
+  /** The hammer is out and the hands are free. */
+  get toolReady(): boolean {
+    return this.current.def.tool === true && this.phase === 'idle' && this.busy <= 0 && !this.blocked;
+  }
+
+  /** Hammer swing animation (no muzzle flash). */
+  swing(): void {
+    const def = this.current.def;
+    this.d.viewmodel.kick(def.kickBack, def.kickRot, false);
+  }
+
   /** Quick-use (Q) or inventory Use. Returns true if a medkit was consumed. */
   useMedkit(): boolean {
     const d = this.d;
@@ -147,13 +159,15 @@ export class WeaponManager {
   }
 
   tick(dt: number, input: Input): void {
-    for (let i = 0; i < this.weapons.length; i++) {
-      if (input.wasPressed(`Digit${i + 1}`)) this.select(i);
-    }
-    const wheel = input.consumeWheel();
-    if (wheel !== 0) {
-      const n = this.weapons.length;
-      this.select((this.target + (wheel > 0 ? 1 : -1) + n) % n);
+    if (!this.blocked) {
+      for (let i = 0; i < this.weapons.length; i++) {
+        if (input.wasPressed(`Digit${i + 1}`)) this.select(i);
+      }
+      const wheel = input.consumeWheel();
+      if (wheel !== 0) {
+        const n = this.weapons.length;
+        this.select((this.target + (wheel > 0 ? 1 : -1) + n) % n);
+      }
     }
     this.updateSwitch(dt);
     this.busy = Math.max(0, this.busy - dt);
@@ -164,6 +178,15 @@ export class WeaponManager {
     const w = this.current;
     const p = this.d.player;
     const free = this.phase === 'idle' && this.busy <= 0 && !this.blocked;
+    if (w.def.tool) {
+      // The hammer's actions (repair/upgrade) are driven by the build system.
+      p.aiming = false;
+      this.ads = Math.max(0, this.ads - dt / w.def.adsTime);
+      const f = Math.exp(-w.def.recoil.recoverySpeed * dt);
+      p.recoil.pitch *= f;
+      p.recoil.yaw *= f;
+      return;
+    }
     p.aiming = input.isDown('Mouse2') && free;
 
     if (p.sprinting) {
@@ -242,17 +265,26 @@ export class WeaponManager {
     this.d.hud.setCrosshair(gap + COMBAT.crosshairMinGap, a < 0.5 && !p.sprinting);
 
     const reserve = this.reserve(w);
-    this.d.hud.setAmmo(w.def.name, w.mag, reserve, w.def.magSize);
     let hint = '';
-    if (w.reloading) hint = 'RELOADING';
-    else if (w.mag === 0 && reserve === 0) hint = 'NO AMMO';
-    else if (w.mag <= Math.ceil(w.def.magSize * 0.25)) hint = '[R] RELOAD';
+    if (w.def.tool) {
+      this.d.hud.setAmmo(w.def.name, null, null, 0);
+      hint = '[E] REPAIR · [RMB] UPGRADE';
+    } else {
+      this.d.hud.setAmmo(w.def.name, w.mag, reserve, w.def.magSize);
+      if (w.reloading) hint = 'RELOADING';
+      else if (w.mag === 0 && reserve === 0) hint = 'NO AMMO';
+      else if (w.mag <= Math.ceil(w.def.magSize * 0.25)) hint = '[R] RELOAD';
+    }
     this.d.hud.setHint(hint);
 
     const inv = this.d.inventory;
     this.d.hud.setHotbar(
       this.target,
-      this.weapons.map((wp) => this.reserve(wp)),
+      this.weapons.map((wp) => {
+        if (wp.def.tool) return '';
+        const r = this.reserve(wp);
+        return r === null ? '∞' : String(r);
+      }),
       inv.count('grenade'),
       inv.count('medkit'),
     );

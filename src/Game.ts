@@ -1,5 +1,8 @@
 import * as THREE from 'three';
-import { CAMERA, DEFAULT_QUALITY, FLASHLIGHT, HUD_FX, ITEMS, ItemId, ZOMBIE_TYPES } from './config';
+import { BuildSystem } from './building/BuildSystem';
+import { StructureManager } from './building/StructureManager';
+import { Upgrades } from './building/Upgrades';
+import { BUILD, CAMERA, DEFAULT_QUALITY, FLASHLIGHT, HUD_FX, ITEMS, ItemId, ZOMBIE_TYPES } from './config';
 import { HitRegistry } from './combat/Hittable';
 import { AudioEngine } from './core/AudioEngine';
 import { EventBus } from './core/EventBus';
@@ -17,6 +20,8 @@ import { PlayerController } from './player/PlayerController';
 import { Stamina } from './player/Stamina';
 import { HUD } from './ui/HUD';
 import { InventoryUI } from './ui/InventoryUI';
+import { StructureLabels } from './ui/StructureLabels';
+import { WorkbenchUI } from './ui/WorkbenchUI';
 import { Grenades } from './weapons/Grenades';
 import { Viewmodel } from './weapons/Viewmodel';
 import { WeaponManager } from './weapons/WeaponManager';
@@ -25,10 +30,14 @@ import { MapBuilder } from './world/MapBuilder';
 import { World } from './world/World';
 
 /**
- * start → playing ⇄ paused; playing ⇄ inventory (the world keeps running);
- * playing → dying → gameOver → (restart) → playing.
+ * start → playing ⇄ paused; playing ⇄ menu (inventory / storage / workbench, the world keeps
+ * running); playing → dying → gameOver → (restart) → playing.
  */
-type GameState = 'start' | 'playing' | 'paused' | 'inventory' | 'dying' | 'gameOver';
+type GameState = 'start' | 'playing' | 'paused' | 'menu' | 'dying' | 'gameOver';
+type MenuKind = 'inventory' | 'storage' | 'workbench';
+
+const DEATH_TEXT = 'The dead have claimed another survivor.';
+const CORE_TEXT = 'The Core has fallen. The base is lost.';
 
 /** Pause before the game over screen appears once the death fall has finished. */
 const GAME_OVER_DELAY = 0.6;
@@ -57,9 +66,18 @@ export class Game {
   readonly loot: LootManager;
   readonly grenades: Grenades;
   readonly inventoryUI: InventoryUI;
+  /** Shared by every storage crate; turrets draw their ammo from it. */
+  readonly storage = new Inventory(BUILD.storageSlots);
+  readonly upgrades = new Upgrades();
+  readonly structures: StructureManager;
+  readonly build: BuildSystem;
+  readonly workbenchUI: WorkbenchUI;
 
   private state: GameState = 'start';
+  private menu: MenuKind | null = null;
   private deathTimer = 0;
+  private readonly labels = new StructureLabels();
+  private readonly eye = new THREE.Vector3();
   private readonly tracers: Tracers;
   private readonly particles: Particles;
   private readonly flashlight: THREE.SpotLight;
@@ -137,21 +155,66 @@ export class Game {
       hud: this.hud,
       audio: this.audio,
     });
-    this.inventoryUI = new InventoryUI(this.inventory, {
+    this.structures = new StructureManager({
+      scene: this.scene,
+      world: this.world,
+      hits: this.hits,
+      zombies: this.zombies.zombies,
+      storage: this.storage,
+      upgrades: this.upgrades,
+      tracers: this.tracers,
+      particles: this.particles,
+      audio: this.audio,
+      hud: this.hud,
+      events: this.events,
+    });
+    this.zombies.structures = this.structures;
+    this.build = new BuildSystem({
+      scene: this.scene,
+      world: this.world,
+      structures: this.structures,
+      inventory: this.inventory,
+      storage: this.storage,
+      upgrades: this.upgrades,
+      weapons: this.weapons,
+      player: this.player,
+      zombies: this.zombies.zombies,
+      pickups: this.pickups,
+      hud: this.hud,
+      audio: this.audio,
+      openStorage: () => this.openMenu('storage'),
+      openWorkbench: () => this.openMenu('workbench'),
+    });
+
+    this.inventoryUI = new InventoryUI(this.inventory, this.storage, {
       use: (slot) => {
         if (this.inventory.slots[slot]?.id === 'medkit') this.weapons.useMedkit();
       },
-      drop: (slot, all) => this.dropFromSlot(slot, all),
-      close: () => this.closeInventory(),
+      drop: (inv, slot, all) => this.dropFromSlot(inv, slot, all),
+      close: () => this.closeMenu(),
       click: () => this.audio.play('uiClick'),
+    });
+    this.workbenchUI = new WorkbenchUI(this.upgrades, {
+      canAfford: (cost) => this.build.canAfford(cost),
+      buy: (id) => {
+        this.build.pay(this.upgrades.nextCost(id)!);
+        this.upgrades.apply(id);
+        this.weapons.damageMul = this.upgrades.damageMul;
+        this.audio.play('upgrade');
+      },
+      close: () => this.closeMenu(),
     });
 
     this.events.on('playerDamaged', (e) => this.hud.damage(e.amount, e.sourceX, e.sourceZ));
     this.events.on('playerDied', () => {
-      if (this.inventoryUI.isOpen) this.inventoryUI.close();
-      this.hud.setPrompt('', 0);
+      this.leaveForDeath();
       this.state = 'dying';
       this.deathTimer = 0;
+    });
+    this.events.on('coreDestroyed', () => {
+      if (this.state === 'dying' || this.state === 'gameOver') return;
+      this.leaveForDeath();
+      this.enterGameOver(CORE_TEXT);
     });
     this.events.on('zombieKilled', (e) => {
       this.stats.kills++;
@@ -217,19 +280,36 @@ export class Game {
     document.getElementById('start-btn')!.textContent = 'Resume';
   }
 
-  /** The pointer is released for the inventory screen; the world keeps running meanwhile. */
-  private openInventory(): void {
-    this.state = 'inventory';
+  /** The pointer is released for a menu screen; the world keeps running meanwhile. */
+  private openMenu(kind: MenuKind): void {
+    this.state = 'menu';
+    this.menu = kind;
     this.hud.setPrompt('', 0);
     this.weapons.blocked = false;
-    this.inventoryUI.open();
+    this.build.exit();
+    if (kind === 'workbench') this.workbenchUI.open();
+    else this.inventoryUI.open(kind === 'storage');
     this.audio.play('uiClick');
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
-  private closeInventory(): void {
-    if (this.state !== 'inventory') return;
+  private closeMenus(): void {
     this.inventoryUI.close();
+    this.workbenchUI.close();
+    this.menu = null;
+  }
+
+  /** Death or base loss: close menus and build mode, clear the HUD prompt. */
+  private leaveForDeath(): void {
+    this.closeMenus();
+    this.build.exit();
+    this.labels.hide();
+    this.hud.setPrompt('', 0);
+  }
+
+  private closeMenu(): void {
+    if (this.state !== 'menu') return;
+    this.closeMenus();
     this.audio.play('uiClick');
     // 'paused' until the lock is granted; if the browser refuses (e.g. closed with Esc, which
     // doesn't count as a user gesture), the pause overlay lets a click resume.
@@ -240,14 +320,14 @@ export class Game {
     });
   }
 
-  private dropFromSlot(slot: number, all: boolean): void {
+  private dropFromSlot(inv: Inventory, slot: number, all: boolean): void {
     let id: ItemId | null = null;
     let count = 1;
     if (all) {
-      const s = this.inventory.removeSlot(slot);
+      const s = inv.removeSlot(slot);
       if (s) ({ id, count } = s);
     } else {
-      id = this.inventory.takeOne(slot);
+      id = inv.takeOne(slot);
     }
     if (!id) return;
     const p = this.player.position;
@@ -256,9 +336,9 @@ export class Game {
     this.audio.play('uiClick');
   }
 
-  private enterGameOver(): void {
+  private enterGameOver(reason: string): void {
     this.state = 'gameOver';
-    this.hud.showGameOver(this.stats);
+    this.hud.showGameOver(this.stats, reason);
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
@@ -276,6 +356,11 @@ export class Game {
     this.pickups.clear();
     this.grenades.clear();
     this.loot.respawnAll();
+    this.structures.reset();
+    this.storage.clear();
+    this.upgrades.reset();
+    this.weapons.damageMul = this.upgrades.damageMul;
+    this.build.exit();
     // Becomes 'playing' once the pointer lock is granted; if the browser refuses the immediate
     // re-lock, the overlay stays up so a click resumes.
     this.state = 'paused';
@@ -287,7 +372,7 @@ export class Game {
   // ------------------------------------------------------------------ loop
 
   private frame(now: number): void {
-    const running = this.state === 'playing' || this.state === 'dying' || this.state === 'inventory';
+    const running = this.state === 'playing' || this.state === 'dying' || this.state === 'menu';
     this.time.timeScale = running ? 1 : 0;
     const steps = this.time.beginFrame(now);
 
@@ -311,6 +396,10 @@ export class Game {
     this.particles.update(dt);
     this.inventoryUI.refresh();
     this.hud.setResources(this.inventory.count('wood'), this.inventory.count('scrap'));
+    this.hud.setCore(this.structures.core.hp, this.structures.core.maxHp);
+    if (this.state === 'playing' || this.state === 'menu') {
+      this.labels.update(this.structures.structures, this.build.aimed, this.camera, this.player.getEye(this.eye));
+    }
     this.lighting.follow(this.player.position);
     this.hud.setVitals(this.health.hp, this.health.fraction, this.stamina.fraction, this.stamina.exhausted);
     this.hud.update(dt, this.player.position.x, this.player.position.z, this.player.yaw);
@@ -334,14 +423,14 @@ export class Game {
     if (this.state === 'dying') {
       this.deathTimer += dt;
       this.player.deathFall = Math.min(1, this.deathTimer / HUD_FX.deathFallTime);
-      if (this.deathTimer >= HUD_FX.deathFallTime + GAME_OVER_DELAY) this.enterGameOver();
-    } else if (this.state === 'inventory') {
+      if (this.deathTimer >= HUD_FX.deathFallTime + GAME_OVER_DELAY) this.enterGameOver(DEATH_TEXT);
+    } else if (this.state === 'menu') {
       // No input reaches the player while the pointer is free; this just lets them come to a stop.
       this.player.update(dt, this.input);
       this.pickups.update(dt, this.player.position, this.inventory);
     } else {
       if (this.input.wasPressed('Tab')) {
-        this.openInventory();
+        this.openMenu('inventory');
         return;
       }
       if (this.input.wasPressed('KeyF')) {
@@ -351,13 +440,19 @@ export class Game {
       }
       if (this.debug) this.debugKeys();
       this.player.update(dt, this.input);
-      this.loot.update(dt, this.input, this.player.position, this.player.yaw, true);
-      this.weapons.blocked = this.loot.searching;
+      // Structures (build mode, hammer, gates, crates) get E first, then loot points.
+      const buildPrompt = this.build.update(dt, this.input);
+      if (this.state !== 'playing') return; // E opened a storage crate or the workbench
+      const lootPrompt = this.loot.update(dt, this.input, this.player.position, this.player.yaw, !buildPrompt && !this.build.active);
+      const prompt = buildPrompt ?? lootPrompt;
+      this.hud.setPrompt(prompt?.text ?? '', prompt?.progress ?? 0);
+      this.weapons.blocked = this.build.active || this.loot.searching;
       this.weapons.tick(dt, this.input);
       this.pickups.update(dt, this.player.position, this.inventory);
     }
     this.health.update(dt);
     this.zombies.update(dt);
+    this.structures.update(dt);
     this.grenades.update(dt);
   }
 
@@ -368,8 +463,11 @@ export class Game {
       this.hud.showNotice(this.health.godMode ? 'GOD MODE ON' : 'GOD MODE OFF', 1.2);
     }
     if (this.input.wasPressed('F2')) {
-      for (const id of Object.keys(ITEMS) as ItemId[]) this.inventory.add(id, 100);
-      this.hud.showNotice('+100 OF EVERYTHING', 1.2);
+      for (const id of Object.keys(ITEMS) as ItemId[]) {
+        this.inventory.add(id, 100);
+        this.storage.add(id, 100);
+      }
+      this.hud.showNotice('+100 OF EVERYTHING (INVENTORY + STORAGE)', 1.2);
     }
     if (this.input.wasPressed('F4')) {
       const p = this.player.position;
@@ -394,7 +492,8 @@ export class Game {
       `FPS ${this.time.fps}  draw calls ${info.calls}  tris ${info.triangles}\n` +
       `pos ${p.x.toFixed(1)} ${p.y.toFixed(2)} ${p.z.toFixed(1)}  ` +
       `${this.player.grounded ? 'grounded' : 'air'}${this.player.crouching ? ' crouch' : ''}${this.player.sprinting ? ' sprint' : ''}\n` +
-      `zombies ${this.zombies.aliveCount}  state ${this.state}  ${this.health.godMode ? 'GOD' : ''}\n` +
-      `F1 god mode  F2 +100 items  F4 spawn zombie`;
+      `zombies ${this.zombies.aliveCount}  state ${this.state}${this.menu ? ` (${this.menu})` : ''}  ${this.health.godMode ? 'GOD' : ''}\n` +
+      `structures ${this.structures.structures.length}  core ${Math.ceil(this.structures.core.hp)}  storage ammo ${this.storage.count('rifleAmmo')}\n` +
+      `F1 god mode  F2 +100 items (inv + storage)  F4 spawn zombie`;
   }
 }

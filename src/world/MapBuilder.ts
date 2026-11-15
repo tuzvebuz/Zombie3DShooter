@@ -301,15 +301,7 @@ export class MapBuilder {
     const p = WORLD.basePad;
     this.flat(0, 0, p * 2, p * 2, 0.04, COLORS.basePad);
 
-    // Core generator placeholder (glowing parts are a separate emissive mesh).
-    this.solid(0, 0, 0, 2.6, 1.4, 2.6, COLORS.core);
-    this.solid(0, 1.4, 0, 1.6, 0.8, 1.6, COLORS.core);
-    const glow = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 0.15, 1.7),
-      new THREE.MeshLambertMaterial({ color: COLORS.coreGlow, emissive: COLORS.coreGlow, emissiveIntensity: 0.9 }),
-    );
-    glow.position.set(0, 1.85, 0);
-    this.scene.add(glow);
+    // The Core generator in the middle is a structure (it has HP), placed by the StructureManager.
 
     // A few sandbag nests at the pad corners as starter cover.
     for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {

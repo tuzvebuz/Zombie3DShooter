@@ -10,6 +10,7 @@ import { HUD } from '../ui/HUD';
 import { boxFromBase } from '../world/AABB';
 import { MapBuilder } from '../world/MapBuilder';
 import { World } from '../world/World';
+import { Prompt } from '../building/BuildSystem';
 import { LootPoint } from './LootPoint';
 
 /** Footprint (x, height, z) of the props that get a collider. Cars already have one. */
@@ -96,8 +97,11 @@ export class LootManager {
     this.progress = 0;
   }
 
-  /** `allowed` is false while the player can't search (dead, in a menu). */
-  update(dt: number, input: Input, pos: THREE.Vector3, yaw: number, allowed: boolean): void {
+  /**
+   * `allowed` is false while E belongs to something else (a structure). Returns the prompt to
+   * show, or null.
+   */
+  update(dt: number, input: Input, pos: THREE.Vector3, yaw: number, allowed: boolean): Prompt | null {
     const target = allowed ? this.findTarget(pos, yaw) : null;
     if (target !== this.target) {
       this.target = target;
@@ -116,7 +120,7 @@ export class LootManager {
       this.searching = false;
     }
 
-    this.d.hud.setPrompt(this.target ? `[E] ${LOOT.label[this.target.kind]}` : '', this.progress);
+    return this.target ? { text: `[E] ${LOOT.label[this.target.kind]}`, progress: this.progress } : null;
   }
 
   // ------------------------------------------------------------------ internals

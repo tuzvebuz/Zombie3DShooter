@@ -178,6 +178,8 @@ export interface WeaponDef {
   muzzle: Vec3;
   kickBack: number;
   kickRot: number;
+  /** Not a gun (the hammer): never fires, reloads or aims. */
+  tool?: boolean;
 }
 
 export const WEAPONS = {
@@ -244,7 +246,102 @@ export const WEAPONS = {
     kickBack: 0.09,
     kickRot: 0.2,
   },
+  hammer: {
+    name: 'Hammer',
+    tool: true,
+    auto: false,
+    rpm: 60,
+    damage: 0,
+    magSize: 0,
+    reloadTime: 0,
+    pellets: 0,
+    range: 0,
+    ammo: null,
+    sound: 'pistol',
+    spread: { base: 0, perShot: 0, moveAdd: 0, airAdd: 0, adsMul: 1, crouchMul: 1, max: 0, recovery: 0 },
+    recoil: { kickPitch: 0, kickYawRange: 0, recoverySpeed: 9 },
+    adsFov: 80,
+    adsTime: 0.2,
+    hipPos: { x: 0.2, y: -0.2, z: -0.45 },
+    adsPos: { x: 0.2, y: -0.2, z: -0.45 },
+    muzzle: { x: 0, y: 0, z: 0 },
+    kickBack: -0.06, // swing: forward
+    kickRot: -0.9,
+  },
 } satisfies Record<string, WeaponDef>;
+
+// ------------------------------------------------------------------ base building
+
+export type StructureType = 'wall' | 'gate' | 'barricade' | 'watchtower' | 'turret' | 'workbench' | 'storage' | 'core';
+export type Tier = 'wood' | 'metal';
+export type Cost = Partial<Record<ItemId, number>>;
+
+export interface StructureDef {
+  name: string;
+  cost: Cost;
+  hp: number;
+  /** Scrap needed to upgrade a wood piece to metal (hammer RMB); null = no metal tier. */
+  metalCost: Cost | null;
+  /** Prompt for E when aimed at (gate, workbench, storage). */
+  interact?: string;
+}
+
+export const STRUCTURES: Record<StructureType, StructureDef> = {
+  wall: { name: 'Wall', cost: { wood: 10 }, hp: 300, metalCost: { scrap: 8 } },
+  gate: { name: 'Gate', cost: { wood: 14 }, hp: 300, metalCost: { scrap: 10 }, interact: 'gate' },
+  barricade: { name: 'Barricade', cost: { wood: 4 }, hp: 120, metalCost: { scrap: 3 } },
+  watchtower: { name: 'Watchtower', cost: { wood: 30, scrap: 5 }, hp: 500, metalCost: { scrap: 20 } },
+  turret: { name: 'Auto-turret', cost: { scrap: 25, wood: 5 }, hp: 250, metalCost: null },
+  workbench: { name: 'Workbench', cost: { wood: 15, scrap: 5 }, hp: 200, metalCost: null, interact: 'Use workbench' },
+  storage: { name: 'Storage crate', cost: { wood: 10 }, hp: 200, metalCost: null, interact: 'Open storage' },
+  core: { name: 'Core', cost: { scrap: 40 }, hp: 2000, metalCost: null },
+};
+
+/** Build menu order (keys 1–7). */
+export const BUILDABLE: StructureType[] = ['wall', 'gate', 'barricade', 'watchtower', 'turret', 'workbench', 'storage'];
+
+export const BUILD = {
+  reach: 8,
+  grid: 1,
+  maxSupportY: 0.5, // only on the ground, curbs and pads (not on roofs or cars)
+  /** Footprint check shrink, so walls can meet at corners. */
+  overlapSlack: 0.21,
+  /** Inside this radius around the Core, costs can also be paid from base storage. */
+  baseRadius: 36,
+  storageSlots: 40,
+  metalHpMul: 2.5,
+  demolishRefund: 0.5,
+  interactReach: 3.2,
+  hammerReach: 4,
+  labelRange: 25,
+} as const;
+
+export const REPAIR = {
+  swingTime: 0.45,
+  fraction: 0.1, // of max HP per swing
+  costMul: 0.5, // share of the build cost to fully repair from 0
+} as const;
+
+export const TURRET = {
+  range: 22,
+  fireInterval: 0.22,
+  damage: 16,
+  spread: 0.25, // aim jitter at the target (m)
+  turnSpeed: 5,
+  aimTolerance: 0.1,
+  thinkInterval: 0.3,
+  muzzleHeight: 1.25,
+} as const;
+
+export const UPGRADES = {
+  metal: { name: 'Metal Reinforcement', desc: 'Unlocks metal walls, gates, barricades and towers (hammer RMB). 2.5× HP.', cost: { scrap: 30, wood: 20 } as Cost },
+  damage: {
+    name: 'Weapon Damage',
+    desc: '+10% damage for all guns and turrets.',
+    perLevel: 0.1,
+    costs: [{ scrap: 20 }, { scrap: 40 }, { scrap: 70 }] as Cost[],
+  },
+} as const;
 
 export const GRENADE = {
   fuse: 3,
@@ -350,10 +447,12 @@ export interface ZombieTypeDef {
   damage: number;
   scale: number;
   attackCooldown: number;
+  /** Damage multiplier against structures. */
+  structureMul: number;
 }
 
 export const ZOMBIE_TYPES = {
-  walker: { hp: 100, speed: 1.7, damage: 15, scale: 1, attackCooldown: 1.2 },
+  walker: { hp: 100, speed: 1.7, damage: 15, scale: 1, attackCooldown: 1.2, structureMul: 1 },
 } satisfies Record<string, ZombieTypeDef>;
 
 export const ZOMBIE = {
@@ -389,6 +488,10 @@ export const ZOMBIE = {
   sinkTime: 1.5,
   groanInterval: { min: 5, max: 12 },
   groanRange: 40,
+  /** A structure closer than this (beyond the body radius) in the chase direction gets attacked. Matches the whisker length so avoidance doesn't steer away first. */
+  structureReach: 1.9,
+  structureApproachTime: 2.5, // give up walking to a structure after this long
+
   /** Test scaffolding until waves exist (milestone 7): keep this many zombies alive. */
   testPopulation: 14,
   respawnDelay: 4,
@@ -460,6 +563,13 @@ export const COLORS = {
   boundary: 0x5a5852,
   core: 0x3d4a52,
   coreGlow: 0xffb02e,
+  plank: 0x8a6a42,
+  plankDark: 0x6a4e30,
+  metal: 0x6d747b,
+  metalDark: 0x4b5157,
+  turret: 0x3e4449,
+  ghostOk: 0x5cff7a,
+  ghostBad: 0xff4a3a,
   sandbag: 0x8f8160,
   gunMetal: 0x4a4e54,
   gunDark: 0x2c2e31,

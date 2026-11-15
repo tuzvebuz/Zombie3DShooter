@@ -17,10 +17,24 @@ export type SoundName =
   | 'lootStart'
   | 'lootDone'
   | 'pickup'
-  | 'uiClick';
+  | 'uiClick'
+  | 'build'
+  | 'denied'
+  | 'repair'
+  | 'upgrade'
+  | 'gate';
 
 /** Sounds that come from a point in the world and are panned/attenuated in 3D. */
-export type PositionalSoundName = 'groan' | 'zombieAttack' | 'zombieHit' | 'zombieDeath' | 'explosion' | 'grenadeBounce';
+export type PositionalSoundName =
+  | 'groan'
+  | 'zombieAttack'
+  | 'zombieHit'
+  | 'zombieDeath'
+  | 'explosion'
+  | 'grenadeBounce'
+  | 'turret'
+  | 'structureBreak'
+  | 'structureHit';
 
 /** All sounds are synthesized with WebAudio: oscillators plus a cached white-noise buffer. */
 export class AudioEngine {
@@ -144,6 +158,27 @@ export class AudioEngine {
       case 'uiClick':
         duration = this.tone(now, out, 'square', 1800, 1500, 0.025, 0.06);
         break;
+      case 'build':
+        this.noiseBurst(now, out, 'lowpass', 600, 0.12, 0.6);
+        this.tone(now, out, 'sine', 160, 70, 0.15, 0.6);
+        duration = this.noiseBurst(now + 0.12, out, 'bandpass', 1400, 0.06, 0.35) + 0.12;
+        break;
+      case 'denied':
+        duration = this.tone(now, out, 'square', 220, 180, 0.15, 0.12);
+        break;
+      case 'repair':
+        this.noiseBurst(now, out, 'bandpass', 2400, 0.04, 0.5);
+        duration = this.tone(now, out, 'triangle', 900, 700, 0.07, 0.25);
+        break;
+      case 'upgrade':
+        this.tone(now, out, 'triangle', 440, 440, 0.12, 0.25);
+        this.tone(now + 0.1, out, 'triangle', 660, 660, 0.12, 0.25);
+        duration = this.tone(now + 0.2, out, 'triangle', 880, 880, 0.2, 0.25) + 0.2;
+        break;
+      case 'gate':
+        this.noiseBurst(now, out, 'lowpass', 500, 0.35, 0.5);
+        duration = this.tone(now, out, 'sawtooth', 70, 55, 0.35, 0.15);
+        break;
     }
     this.voiceEnds.push(now + duration);
   }
@@ -193,6 +228,18 @@ export class AudioEngine {
         break;
       case 'grenadeBounce':
         duration = this.tone(now, panner, 'triangle', 1500, 1200, 0.05, 0.25);
+        break;
+      case 'turret':
+        duration = this.gunshot(now, panner, 1900, 0.1, 170, 0.6);
+        break;
+      case 'structureBreak':
+        panner.refDistance = 6;
+        this.noiseBurst(now, panner, 'lowpass', 900, 0.6, 1.1);
+        duration = this.tone(now, panner, 'sine', 110, 40, 0.5, 0.8);
+        break;
+      case 'structureHit':
+        this.noiseBurst(now, panner, 'bandpass', 500, 0.1, 0.7);
+        duration = this.tone(now, panner, 'sine', 130, 70, 0.09, 0.5);
         break;
     }
     this.voiceEnds.push(now + duration);

@@ -57,10 +57,10 @@ export class Viewmodel {
     model.add(this.flash.object);
   }
 
-  kick(back: number, rot: number): void {
+  kick(back: number, rot: number, flash = true): void {
     this.kickZ += back;
     this.kickRot += rot;
-    this.flash.fire();
+    if (flash) this.flash.fire();
   }
 
   /** Muzzle position projected to normalized device coordinates. */

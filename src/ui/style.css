@@ -650,10 +650,24 @@ body {
   margin: 12px 0 0;
 }
 
-#inv-grid {
+.inv-panels {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.inv-grid {
   display: grid;
   grid-template-columns: repeat(5, 64px);
   gap: 6px;
+}
+
+.inv-grid.storage {
+  grid-template-columns: repeat(8, 64px);
+}
+
+#storage-panel {
+  padding: 18px 20px 14px;
 }
 
 .slot {
@@ -761,4 +775,172 @@ body {
 #inv-menu button:hover {
   background: rgba(255, 176, 46, 0.2);
   color: var(--accent);
+}
+
+.hb-tool .hb-count {
+  min-height: 18px;
+}
+
+/* Build mode bar (replaces the hotbar). */
+#buildbar {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+#build-items {
+  display: flex;
+  gap: 6px;
+}
+
+.build-item {
+  width: 92px;
+}
+
+.build-cost {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.build-item.empty .build-cost {
+  color: #ff5a4a;
+}
+
+#build-status {
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+#build-status.bad {
+  color: #ff5a4a;
+}
+
+/* Floating structure health bars. */
+#structure-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.slabel {
+  position: absolute;
+  left: -40px;
+  top: -18px;
+  width: 80px;
+  text-align: center;
+}
+
+.slabel-text {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 2px #000;
+  white-space: nowrap;
+}
+
+.slabel-text.warn {
+  color: #ff5a4a;
+  font-weight: 700;
+}
+
+.slabel-bar {
+  height: 5px;
+  margin-top: 2px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.slabel-fill {
+  height: 100%;
+  background: #7fdc6a;
+}
+
+.slabel-fill.low {
+  background: #ff5a4a;
+}
+
+/* Core HP (top center). */
+#core-hp {
+  position: absolute;
+  left: 50%;
+  top: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 320px;
+  padding: 7px 14px;
+}
+
+.core-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+.bar.core .fill {
+  background: var(--accent);
+}
+
+.bar.core .fill.low {
+  background: #ff5a4a;
+}
+
+.core-num {
+  min-width: 80px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Workbench screen. */
+.wb-panel {
+  width: 460px;
+  padding: 18px 20px 14px;
+}
+
+.wb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--panel-border);
+}
+
+.wb-row p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.wb-row .btn {
+  padding: 7px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.wb-done {
+  font-size: 12px;
+  color: #7fdc6a;
+  white-space: nowrap;
 }

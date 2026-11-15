@@ -39,6 +39,10 @@ export class HUD {
   private readonly hotbarMedkits = byId('hb-medkits');
   private readonly resWood = byId('res-wood');
   private readonly resScrap = byId('res-scrap');
+  private readonly ammoCount = byId('ammo-count');
+  private readonly coreEl = byId('core-hp');
+  private readonly coreFill = byId('core-fill');
+  private readonly coreNum = byId('core-num');
 
   private readonly indicators: DamageIndicator[];
   private nextIndicator = 0;
@@ -56,6 +60,7 @@ export class HUD {
   private progressShown = -1;
   private hotbarKey = '';
   private resKey = '';
+  private coreShown = -2;
 
   constructor() {
     const dirs = byId('damage-dirs');
@@ -93,14 +98,29 @@ export class HUD {
     if (headshot) el.classList.add('head');
   }
 
-  setAmmo(name: string, mag: number, reserve: number | null, magSize: number): void {
+  /** `mag` null = a tool without ammo (the count is hidden). */
+  setAmmo(name: string, mag: number | null, reserve: number | null, magSize: number): void {
     const key = `${name}|${mag}|${reserve}`;
     if (key === this.ammoKey) return;
     this.ammoKey = key;
     this.weaponName.textContent = name;
+    this.ammoCount.classList.toggle('hidden', mag === null);
+    if (mag === null) return;
     this.ammoMag.textContent = String(mag);
     this.ammoMag.classList.toggle('low', mag <= Math.ceil(magSize * 0.25));
     this.ammoReserve.textContent = reserve === null ? '∞' : String(reserve);
+  }
+
+  /** Core HP bar (top center); shown while damaged. */
+  setCore(hp: number, max: number): void {
+    const v = hp < max ? Math.ceil(hp) : -1;
+    if (v === this.coreShown) return;
+    this.coreShown = v;
+    this.coreEl.classList.toggle('hidden', v < 0);
+    if (v < 0) return;
+    this.coreFill.style.width = `${(hp / max) * 100}%`;
+    this.coreFill.classList.toggle('low', hp / max <= 0.3);
+    this.coreNum.textContent = `${v} / ${max}`;
   }
 
   setHint(text: string): void {
@@ -109,16 +129,15 @@ export class HUD {
     this.weaponHint.textContent = text;
   }
 
-  /** Weapon slots with their reserve ammo (null = infinite), plus grenade and medkit counts. */
-  setHotbar(active: number, reserves: (number | null)[], grenades: number, medkits: number): void {
-    const key = `${active}|${reserves.join(',')}|${grenades}|${medkits}`;
+  /** Weapon slots with their reserve-ammo label, plus grenade and medkit counts. */
+  setHotbar(active: number, labels: string[], grenades: number, medkits: number): void {
+    const key = `${active}|${labels.join(',')}|${grenades}|${medkits}`;
     if (key === this.hotbarKey) return;
     this.hotbarKey = key;
     this.hotbarSlots.forEach((el, i) => el.classList.toggle('active', i === active));
     this.hotbarAmmo.forEach((el, i) => {
-      const r = reserves[i];
-      el.textContent = r === null || r === undefined ? '∞' : String(r);
-      el.classList.toggle('empty', r === 0);
+      el.textContent = labels[i] ?? '';
+      el.classList.toggle('empty', labels[i] === '0');
     });
     this.hotbarGrenades.textContent = String(grenades);
     this.hotbarGrenades.parentElement!.classList.toggle('empty', grenades === 0);
@@ -247,7 +266,8 @@ export class HUD {
     this.noticeTimer = window.setTimeout(() => this.notice.classList.add('hidden'), seconds * 1000);
   }
 
-  showGameOver(stats: Stats): void {
+  showGameOver(stats: Stats, reason: string): void {
+    byId('go-reason').textContent = reason;
     byId('go-waves').textContent = String(stats.wavesSurvived);
     byId('go-kills').textContent = String(stats.kills);
     byId('go-headshots').textContent = String(stats.headshots);

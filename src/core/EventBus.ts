@@ -6,6 +6,8 @@ export interface GameEvents {
   playerDied: Record<string, never>;
   zombieKilled: { x: number; y: number; z: number; headshot: boolean };
   explosion: { x: number; y: number; z: number };
+  structuresChanged: Record<string, never>;
+  coreDestroyed: Record<string, never>;
 }
 
 type Handler<T> = (payload: T) => void;

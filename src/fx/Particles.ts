@@ -38,8 +38,8 @@ export class Particles {
     scene.add(this.mesh);
   }
 
-  /** Burst of `count` particles from `point`, biased along `normal`. */
-  burst(point: THREE.Vector3, normal: THREE.Vector3, color: number, count: number, speed: number): void {
+  /** Burst of `count` particles from `point`, biased along `normal`. `sizeMul` > 1 for chunky debris. */
+  burst(point: THREE.Vector3, normal: THREE.Vector3, color: number, count: number, speed: number, sizeMul = 1): void {
     this.c.setHex(color);
     for (let k = 0; k < count; k++) {
       const i = this.next;
@@ -51,7 +51,7 @@ export class Particles {
       this.pos.set([point.x + normal.x * 0.03, point.y + normal.y * 0.03, point.z + normal.z * 0.03], i * 3);
       this.vel.set([vx * sp, vy * sp, vz * sp], i * 3);
       this.maxLife[i] = this.life[i] = 0.3 + Math.random() * 0.35;
-      this.size[i] = 0.03 + Math.random() * 0.05;
+      this.size[i] = (0.03 + Math.random() * 0.05) * sizeMul;
       this.mesh.setColorAt(i, this.c);
     }
     this.alive = FX.particlePool;

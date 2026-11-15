@@ -3,6 +3,7 @@ import { GRENADE, WORLD, ZOMBIE, ZombieTypeDef, ZOMBIE_TYPES } from '../config';
 import { AudioEngine } from '../core/AudioEngine';
 import { EventBus } from '../core/EventBus';
 import { HitRegistry } from '../combat/Hittable';
+import { StructureQuery, StructureTarget } from '../combat/StructureTarget';
 import { Health } from '../player/Health';
 import { PlayerController } from '../player/PlayerController';
 import { boxFromBase } from '../world/AABB';
@@ -32,6 +33,8 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
   private respawnTimer = 0;
   private readonly ray: Ray = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 };
   private readonly rayHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+  /** Set once the structure manager exists (it needs the zombies too). */
+  structures: StructureQuery | null = null;
   private readonly blastCenter = new THREE.Vector3();
   private readonly blastDir = new THREE.Vector3();
 
@@ -126,6 +129,23 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
     this.d.health.takeDamage(z.type.damage, z.pos.x, z.pos.z);
     this.d.audio.playAt('zombieAttack', z.head.x, z.head.y, z.head.z, this.pitchOf(z));
     this.d.audio.play('playerHurt');
+  }
+
+  structureInWay(z: Zombie, yaw: number, dist: number, out: { t: number }): StructureTarget | null {
+    if (!this.structures) return null;
+    const r = this.ray;
+    r.ox = z.pos.x;
+    r.oy = z.pos.y + 0.8 * z.type.scale;
+    r.oz = z.pos.z;
+    r.dx = Math.sin(yaw);
+    r.dy = 0;
+    r.dz = Math.cos(yaw);
+    return this.structures.firstAlong(r, dist, out);
+  }
+
+  hitStructure(z: Zombie, s: StructureTarget): void {
+    this.structures?.damage(s, z.type.damage * z.type.structureMul);
+    this.d.audio.playAt('structureHit', z.head.x, z.head.y - 0.5, z.head.z);
   }
 
   // ------------------------------------------------------------------ ZombieHooks

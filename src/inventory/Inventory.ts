@@ -17,8 +17,12 @@ export class Inventory {
 
   /** Empties the inventory and gives the starting items. */
   reset(): void {
-    this.slots.fill(null);
+    this.clear();
     for (const [id, n] of START_ITEMS) this.add(id, n);
+  }
+
+  clear(): void {
+    this.slots.fill(null);
     this.version++;
   }
 
@@ -80,11 +84,14 @@ export class Inventory {
     return n - left;
   }
 
-  /** Drag-and-drop: merges into a stack of the same item (up to its limit), otherwise swaps. */
-  move(from: number, to: number): void {
-    if (from === to) return;
+  /**
+   * Drag-and-drop, also into another inventory (base storage): merges into a stack of the same
+   * item (up to its limit), otherwise swaps.
+   */
+  move(from: number, to: number, target: Inventory = this): void {
+    if (target === this && from === to) return;
     const a = this.slots[from];
-    const b = this.slots[to];
+    const b = target.slots[to];
     if (!a) return;
     if (b && b.id === a.id) {
       const k = Math.min(a.count, ITEMS[a.id].maxStack - b.count);
@@ -92,9 +99,21 @@ export class Inventory {
       a.count -= k;
       if (a.count === 0) this.slots[from] = null;
     } else {
-      this.slots[to] = a;
+      target.slots[to] = a;
       this.slots[from] = b;
     }
+    this.version++;
+    target.version++;
+  }
+
+  /** Shift-click: moves as much of a slot as fits into `target`. */
+  quickMove(from: number, target: Inventory): void {
+    const s = this.slots[from];
+    if (!s) return;
+    const left = target.add(s.id, s.count);
+    if (left === s.count) return;
+    s.count = left;
+    if (left === 0) this.slots[from] = null;
     this.version++;
   }
 

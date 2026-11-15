@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { COLORS, ZOMBIE, ZombieTypeDef, ZOMBIE_TYPES } from '../config';
 import { Hittable, TargetHit } from '../combat/Hittable';
+import { StructureTarget } from '../combat/StructureTarget';
 import { AABB, makeAABB } from '../world/AABB';
 import { Ray, RayHit, rayAABB, raySphere } from '../world/Ray';
 import { World } from '../world/World';
 
-export type ZombieState = 'inactive' | 'idle' | 'wander' | 'chase' | 'attack' | 'dead';
+export type ZombieState = 'inactive' | 'idle' | 'wander' | 'chase' | 'attack' | 'attackStructure' | 'dead';
 
 /** Body proportions at scale 1 (local forward is +Z). */
 export const BODY = {
@@ -23,6 +24,9 @@ export interface ZombieContext {
   readonly playerEye: THREE.Vector3;
   lineOfSight(x: number, y: number, z: number, to: THREE.Vector3): boolean;
   hitPlayer(z: Zombie): void;
+  /** A player structure blocking the way along `yaw` within `dist` (its distance goes to `out.t`), or null. */
+  structureInWay(z: Zombie, yaw: number, dist: number, out: { t: number }): StructureTarget | null;
+  hitStructure(z: Zombie, s: StructureTarget): void;
 }
 
 export interface ZombieHooks {
@@ -86,6 +90,13 @@ export class Zombie implements Hittable {
   private stagger = 0;
   private deadTime = 0;
   private groanTimer = 0;
+  private structure: StructureTarget | null = null;
+  private structureYaw = 0;
+  /** Point on the structure it walks up to and hits. */
+  private structureX = 0;
+  private structureZ = 0;
+  private readonly structureHit = { t: 0 };
+  private approachTime = 0;
 
   private readonly body: AABB = makeAABB(0, 0, 0, 0, 0, 0);
   private readonly ray: Ray = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 };
@@ -121,6 +132,7 @@ export class Zombie implements Hittable {
     this.fall = this.sink = this.flash = this.attackAnim = this.armRaise = 0;
     this.deadTime = this.stagger = this.detour = this.avoid = 0;
     this.lastSeen = Infinity;
+    this.structure = null;
     this.thinkTimer = Math.random() * ZOMBIE.thinkInterval; // stagger AI across frames
     this.whiskerTimer = Math.random() * ZOMBIE.whiskerInterval;
     this.groanTimer = rand(1, ZOMBIE.groanInterval.max);
@@ -135,7 +147,7 @@ export class Zombie implements Hittable {
 
   /** Something drew attention to (x, z): a gunshot or being shot. */
   alert(x: number, z: number): void {
-    if (!this.alive || this.state === 'chase' || this.state === 'attack') return;
+    if (!this.alive || this.state === 'chase' || this.state === 'attack' || this.state === 'attackStructure') return;
     this.targetX = x;
     this.targetZ = z;
     this.state = 'chase';
@@ -206,11 +218,12 @@ export class Zombie implements Hittable {
     if (this.thinkTimer <= 0) {
       this.thinkTimer += ZOMBIE.thinkInterval;
       this.perceive(ctx);
+      if (this.state === 'chase' && this.attackCooldown <= 0) this.checkStructure(ctx);
     }
 
     this.groanTimer -= dt;
     if (this.groanTimer <= 0) {
-      const chasing = this.state === 'chase' || this.state === 'attack';
+      const chasing = this.state === 'chase' || this.state === 'attack' || this.state === 'attackStructure';
       this.groanTimer = rand(ZOMBIE.groanInterval.min, ZOMBIE.groanInterval.max) * (chasing ? 0.5 : 1);
       this.hooks.onGroan(this);
     }
@@ -251,12 +264,16 @@ export class Zombie implements Hittable {
       case 'attack':
         this.updateAttack(dt, ctx);
         break;
+
+      case 'attackStructure':
+        this.updateAttackStructure(dt, ctx);
+        break;
     }
 
     // Walk animation follows actual movement speed.
     const moving = Math.hypot(this.velX, this.velZ);
     this.walkPhase += moving * dt * 2.4;
-    const raised = this.state === 'chase' || this.state === 'attack' ? 1 : 0;
+    const raised = this.state === 'chase' || this.state === 'attack' || this.state === 'attackStructure' ? 1 : 0;
     this.armRaise += (raised - this.armRaise) * (1 - Math.exp(-5 * dt));
     this.updateHead();
   }
@@ -380,6 +397,71 @@ export class Zombie implements Hittable {
     if (this.stateTimer >= ZOMBIE.attackWindup + ZOMBIE.attackRecover) {
       this.attackCooldown = this.type.attackCooldown - ZOMBIE.attackWindup - ZOMBIE.attackRecover;
       this.attackAnim = 0;
+      this.state = 'chase';
+      this.resetProgress();
+    }
+  }
+
+  /**
+   * Chasing but a structure blocks the way (seen at whisker range, before avoidance steers away):
+   * walk up to it and bash it, unless the target is closer than the structure.
+   */
+  private checkStructure(ctx: ZombieContext): void {
+    const dx = this.targetX - this.pos.x;
+    const dz = this.targetZ - this.pos.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < ZOMBIE.attackRange) return;
+    const yaw = Math.atan2(dx, dz);
+    const look = Math.min(dist, this.radius + ZOMBIE.structureReach);
+    const s = ctx.structureInWay(this, yaw, look, this.structureHit);
+    if (!s) return;
+    this.structure = s;
+    this.structureYaw = yaw;
+    this.structureX = this.pos.x + (dx / dist) * this.structureHit.t;
+    this.structureZ = this.pos.z + (dz / dist) * this.structureHit.t;
+    this.approachTime = 0;
+    this.state = 'attackStructure';
+    this.stateTimer = 0;
+    this.struck = false;
+  }
+
+  private updateAttackStructure(dt: number, ctx: ZombieContext): void {
+    // Close in first (straight, no avoidance), then swing.
+    const dx = this.structureX - this.pos.x;
+    const dz = this.structureZ - this.pos.z;
+    if (this.stateTimer === 0 && Math.hypot(dx, dz) > this.radius + 0.45 && this.stagger <= 0) {
+      this.approachTime += dt;
+      if (this.approachTime > ZOMBIE.structureApproachTime || this.structure?.destroyed) {
+        // Can't get there (pushed aside, or it's gone): back to chasing for a moment.
+        this.structure = null;
+        this.state = 'chase';
+        this.attackCooldown = 1;
+        this.resetProgress();
+        return;
+      }
+      const a = 1 - Math.exp(-ZOMBIE.accel * dt);
+      const d = Math.hypot(dx, dz);
+      this.velX += ((dx / d) * this.type.speed - this.velX) * a;
+      this.velZ += ((dz / d) * this.type.speed - this.velZ) * a;
+      this.pos.x += this.velX * dt;
+      this.pos.z += this.velZ * dt;
+      this.turnToward(this.structureYaw, dt);
+      return;
+    }
+    this.decelerate(dt);
+    this.turnToward(this.structureYaw, dt * 1.5);
+    this.stateTimer += dt;
+    this.attackAnim = Math.min(1, this.stateTimer / ZOMBIE.attackWindup);
+    const s = this.structure;
+    if (!this.struck && this.stateTimer >= ZOMBIE.attackWindup) {
+      this.struck = true;
+      if (s && !s.destroyed) ctx.hitStructure(this, s);
+    }
+    if (this.stateTimer >= ZOMBIE.attackWindup + ZOMBIE.attackRecover) {
+      // Back to chasing; the next think re-checks whether the structure still blocks the way.
+      this.attackCooldown = this.type.attackCooldown - ZOMBIE.attackWindup - ZOMBIE.attackRecover;
+      this.attackAnim = 0;
+      this.structure = null;
       this.state = 'chase';
       this.resetProgress();
     }
