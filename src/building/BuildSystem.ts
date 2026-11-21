@@ -181,7 +181,7 @@ export class BuildSystem {
     let z: number;
     let y = 0;
     let deck: Structure | null = null;
-    const hitAny = d.world.raycast(r, BUILD.reach + 2, this.hit);
+    const hitAny = d.world.raycast(r, BUILD.reach + 2, this.hit) && this.hit.t <= BUILD.reach + 0.5;
     if (hitAny) {
       const h = this.hit;
       x = this.eye.x + this.fwd.x * h.t;
@@ -196,8 +196,10 @@ export class BuildSystem {
         z += h.nz * 0.6;
       }
     } else {
-      x = this.eye.x + this.fwd.x * BUILD.reach;
-      z = this.eye.z + this.fwd.z * BUILD.reach;
+      // Looking past the reach (or at the horizon): place on the ground at max reach.
+      const fl = Math.hypot(this.fwd.x, this.fwd.z) || 1;
+      x = this.eye.x + (this.fwd.x / fl) * (BUILD.reach - 1);
+      z = this.eye.z + (this.fwd.z / fl) * (BUILD.reach - 1);
     }
     const g = BUILD.grid;
     this.pos.x = Math.round(x / g) * g;
@@ -206,7 +208,7 @@ export class BuildSystem {
 
     this.valid = false;
     const dist = Math.hypot(this.pos.x - this.eye.x, this.pos.z - this.eye.z);
-    if (!hitAny || dist > BUILD.reach) {
+    if (dist > BUILD.reach) {
       this.reason = 'Too far';
       return;
     }
