@@ -57,7 +57,7 @@ export class World {
   }
 
   private readonly scratch: AABB[] = [];
-  private readonly scratchHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+  private readonly scratchHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0, id: -1 };
 
   /**
    * Nearest hit against the ground plane and all static colliders, walking the grid cells
@@ -76,6 +76,7 @@ export class World {
         out.nx = 0;
         out.ny = 1;
         out.nz = 0;
+        out.id = -1;
       }
     }
 
@@ -105,6 +106,7 @@ export class World {
           out.nx = hit.nx;
           out.ny = hit.ny;
           out.nz = hit.nz;
+          out.id = id;
         }
       }
       const tExit = Math.min(tMaxX, tMaxZ);

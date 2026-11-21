@@ -33,11 +33,59 @@
           <div id="weapon-name"></div>
           <div id="weapon-hint"></div>
         </div>
+        <div id="prompt" class="hidden">
+          <div id="prompt-ring" class="hidden"></div>
+          <div id="prompt-text"></div>
+          <div id="prompt-sub"></div>
+        </div>
+        <div id="resources" class="panel"></div>
+        <div id="core-hp" class="panel hidden">
+          <div class="core-label">CORE</div>
+          <div class="bar core"><div id="core-fill" class="fill"></div></div>
+          <div id="core-num"></div>
+        </div>
+        <div id="hotbar">
+          <div class="slot"><b>1</b><span>Pistol</span></div>
+          <div class="slot"><b>2</b><span>Rifle</span></div>
+          <div class="slot"><b>3</b><span>Shotgun</span></div>
+          <div class="slot"><b>4</b><span>Hammer</span></div>
+          <div class="slot item" data-count="grenade"><b>G</b><span>Grenade</span><em class="n">0</em></div>
+          <div class="slot item" data-count="medkit"><b>Q</b><span>Medkit</span><em class="n">0</em></div>
+        </div>
+        <div id="build-bar" class="hidden">
+          <div id="build-info" class="panel"></div>
+          <div id="build-items"></div>
+        </div>
         <div id="debug-info" class="panel hidden"></div>
+        <div id="inv-overlay" class="overlay hidden">
+          <div class="inv-wrap">
+            <div class="panel inv-panel">
+              <h2>Inventory</h2>
+              <div id="inv-player" class="inv-grid"></div>
+              <p class="inv-help">Drag to move · Right-click: use / drop · Shift-click: transfer · Tab / Esc: close</p>
+            </div>
+            <div id="inv-storage-panel" class="panel inv-panel hidden">
+              <h2>Base Storage</h2>
+              <div id="inv-storage" class="inv-grid wide"></div>
+              <p class="inv-help">Shared by all storage crates. Turrets take rifle ammo from here.</p>
+            </div>
+          </div>
+        </div>
+        <div id="bench-overlay" class="overlay hidden">
+          <div class="panel menu bench">
+            <h1>WORKBENCH</h1>
+            <p class="sub">Costs come from your inventory, then base storage.</p>
+            <div id="bench-list"></div>
+            <button id="bench-close" class="btn ghost">Close [Esc]</button>
+          </div>
+        </div>
+        <div id="ctx-menu" class="panel hidden"></div>
+        <div id="tooltip" class="panel hidden"></div>
+        <div id="drag-ghost" class="hidden"></div>
         <div id="start-overlay" class="overlay">
           <div class="panel menu">
             <h1>LAST OUTPOST</h1>
-            <p class="sub" id="start-sub">Milestone 4 — health, stamina &amp; HUD</p>
+            <p class="sub" id="start-sub">Milestone 6 — looting &amp; base building</p>
             <button id="start-btn" class="btn">Click to play</button>
             <ul class="keys">
               <li><b>WASD</b> move</li>
@@ -47,8 +95,14 @@
               <li><b>LMB</b> fire</li>
               <li><b>RMB</b> aim</li>
               <li><b>R</b> reload</li>
-              <li><b>1 / 2</b> pistol / rifle</li>
+              <li><b>1–4</b> pistol / rifle / shotgun / hammer</li>
               <li><b>Wheel</b> switch weapon</li>
+              <li><b>G</b> grenade</li>
+              <li><b>Q</b> medkit</li>
+              <li><b>E</b> interact (hold to loot)</li>
+              <li><b>Tab</b> inventory</li>
+              <li><b>B</b> build mode</li>
+              <li><b>R / T</b> rotate / tier (build)</li>
               <li><b>F</b> flashlight</li>
               <li><b>Esc</b> pause</li>
             </ul>

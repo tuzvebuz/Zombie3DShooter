@@ -35,6 +35,8 @@ export class PlayerController {
 
   /** 0..1 while dying: the camera drops to the ground and rolls. */
   deathFall = 0;
+  /** Camera shake strength (explosions); decays on its own. */
+  shake = 0;
 
   constructor(
     private readonly world: World,
@@ -98,14 +100,20 @@ export class PlayerController {
   }
 
   /** Writes the camera transform; called once per rendered frame. */
-  updateCamera(): void {
+  updateCamera(dt = 0): void {
     const fall = this.deathFall * this.deathFall * (3 - 2 * this.deathFall);
+    this.shake *= Math.exp(-6 * dt);
+    const sh = this.shake * this.shake * 0.12;
     this.camera.position.set(
       this.position.x + Math.cos(this.yaw) * this.bobX,
       this.position.y + (this.eyeHeight - 0.25) * (1 - fall) + 0.25 + this.stepSmooth + this.bobY,
       this.position.z - Math.sin(this.yaw) * this.bobX,
     );
-    this.camera.rotation.set(this.viewPitch() * (1 - fall) + 0.35 * fall, this.yaw + this.recoil.yaw, 0.9 * fall);
+    this.camera.rotation.set(
+      this.viewPitch() * (1 - fall) + 0.35 * fall + (Math.random() - 0.5) * sh,
+      this.yaw + this.recoil.yaw + (Math.random() - 0.5) * sh,
+      0.9 * fall + (Math.random() - 0.5) * sh * 0.5,
+    );
   }
 
   respawn(): void {
@@ -117,6 +125,12 @@ export class PlayerController {
     this.sprinting = false;
     this.aiming = false;
     this.deathFall = 0;
+    this.shake = 0;
+  }
+
+  /** Current collision box (shared object, valid until the next movement step). */
+  getBox(): AABB {
+    return this.updateBox();
   }
 
   getEye(out: THREE.Vector3): THREE.Vector3 {

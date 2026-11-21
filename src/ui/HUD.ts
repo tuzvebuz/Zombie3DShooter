@@ -1,4 +1,4 @@
-import { HEALTH, HUD_FX } from '../config';
+import { HEALTH, HUD_FX, ITEMS, ItemId } from '../config';
 import { Stats } from '../core/Stats';
 
 export type HitmarkerKind = 'hit' | 'kill';
@@ -30,6 +30,15 @@ export class HUD {
   private readonly staminaBar = byId('stamina-bar');
   private readonly feed = byId('feed');
   private readonly gameOver = byId('gameover');
+  private readonly prompt = byId('prompt');
+  private readonly promptText = byId('prompt-text');
+  private readonly promptSub = byId('prompt-sub');
+  private readonly promptRing = byId('prompt-ring');
+  private readonly hotbarSlots = Array.from(byId('hotbar').children) as HTMLElement[];
+  private readonly coreBox = byId('core-hp');
+  private readonly coreFill = byId('core-fill');
+  private readonly coreNum = byId('core-num');
+  private readonly resEls = new Map<ItemId, HTMLElement>();
 
   private readonly indicators: DamageIndicator[];
   private nextIndicator = 0;
@@ -43,6 +52,11 @@ export class HUD {
   private staminaShown = -1;
   private exhaustedShown = false;
   private vignetteShown = -1;
+  private promptKey = '';
+  private ringShown = -1;
+  private activeSlot = -2;
+  private countsKey = '';
+  private coreKey = '';
 
   constructor() {
     const dirs = byId('damage-dirs');
@@ -52,6 +66,66 @@ export class HUD {
       return { el, x: 0, z: 0, timer: 0 };
     });
     byId('regen-cap').style.left = `${HEALTH.regenCap * 100}%`;
+    const res = byId('resources');
+    for (const id of ['wood', 'scrap'] as ItemId[]) {
+      const el = document.createElement('div');
+      el.className = 'res';
+      el.innerHTML = `<i style="background:${ITEMS[id].color}"></i><span>0</span>`;
+      el.title = ITEMS[id].name;
+      res.appendChild(el);
+      this.resEls.set(id, el.lastElementChild as HTMLElement);
+    }
+  }
+
+  // ------------------------------------------------------------------ hotbar, resources, prompts
+
+  setActiveSlot(i: number): void {
+    if (i === this.activeSlot) return;
+    this.activeSlot = i;
+    this.hotbarSlots.forEach((el, k) => el.classList.toggle('active', k === i));
+  }
+
+  /** Item counts shown in the hotbar (grenades, medkits, ammo) and resource counters. */
+  setCounts(count: (id: ItemId) => number): void {
+    const ids: ItemId[] = ['wood', 'scrap', 'grenade', 'medkit', 'rifleAmmo', 'shells'];
+    const key = ids.map(count).join('|');
+    if (key === this.countsKey) return;
+    this.countsKey = key;
+    for (const [id, el] of this.resEls) el.textContent = String(count(id));
+    for (const el of this.hotbarSlots) {
+      const id = el.dataset.count as ItemId | undefined;
+      if (!id) continue;
+      const n = count(id);
+      el.querySelector('.n')!.textContent = String(n);
+      el.classList.toggle('empty', n === 0);
+    }
+  }
+
+  /** Interaction prompt below the crosshair; `progress` 0..1 fills the hold ring. */
+  setPrompt(text: string, sub: string, progress: number): void {
+    const key = text + '|' + sub;
+    if (key !== this.promptKey) {
+      this.promptKey = key;
+      this.prompt.classList.toggle('hidden', text === '');
+      this.promptText.textContent = text;
+      this.promptSub.textContent = sub;
+    }
+    const r = Math.round(progress * 100);
+    if (r !== this.ringShown) {
+      this.ringShown = r;
+      this.promptRing.style.setProperty('--p', `${r}%`);
+      this.promptRing.classList.toggle('hidden', r === 0);
+    }
+  }
+
+  /** Core HP panel (shown while damaged). */
+  setCore(hp: number, max: number, visible: boolean): void {
+    const key = visible ? `${Math.ceil(hp)}` : '';
+    if (key === this.coreKey) return;
+    this.coreKey = key;
+    this.coreBox.classList.toggle('hidden', !visible);
+    this.coreFill.style.width = `${(hp / max) * 100}%`;
+    this.coreNum.textContent = `${Math.ceil(hp)} / ${max}`;
   }
 
   // ------------------------------------------------------------------ crosshair & weapon
@@ -77,14 +151,16 @@ export class HUD {
     if (headshot) el.classList.add('head');
   }
 
-  setAmmo(name: string, mag: number, reserve: number | null, magSize: number): void {
+  setAmmo(name: string, mag: number | null, reserve: number | null, magSize: number): void {
     const key = `${name}|${mag}|${reserve}`;
     if (key === this.ammoKey) return;
     this.ammoKey = key;
     this.weaponName.textContent = name;
-    this.ammoMag.textContent = String(mag);
-    this.ammoMag.classList.toggle('low', mag <= Math.ceil(magSize * 0.25));
-    this.ammoReserve.textContent = reserve === null ? '∞' : String(reserve);
+    this.ammoMag.textContent = mag === null ? '—' : String(mag);
+    this.ammoMag.classList.toggle('low', mag !== null && mag <= Math.ceil(magSize * 0.25));
+    if (mag === null) reserve = null;
+    this.ammoReserve.textContent = reserve === null ? (mag === null ? '' : '∞') : String(reserve);
+    this.ammoReserve.previousElementSibling!.classList.toggle('hidden', mag === null);
   }
 
   setHint(text: string): void {

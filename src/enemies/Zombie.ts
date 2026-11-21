@@ -5,7 +5,14 @@ import { AABB, makeAABB } from '../world/AABB';
 import { Ray, RayHit, rayAABB, raySphere } from '../world/Ray';
 import { World } from '../world/World';
 
-export type ZombieState = 'inactive' | 'idle' | 'wander' | 'chase' | 'attack' | 'dead';
+export type ZombieState = 'inactive' | 'idle' | 'wander' | 'chase' | 'attack' | 'smash' | 'dead';
+
+/** A player structure blocking the way (implemented by Structure). */
+export interface SmashTarget {
+  readonly alive: boolean;
+  readonly x: number;
+  readonly z: number;
+}
 
 /** Body proportions at scale 1 (local forward is +Z). */
 export const BODY = {
@@ -23,6 +30,9 @@ export interface ZombieContext {
   readonly playerEye: THREE.Vector3;
   lineOfSight(x: number, y: number, z: number, to: THREE.Vector3): boolean;
   hitPlayer(z: Zombie): void;
+  /** The player structure owning a collider id, or null for static world geometry. */
+  structureAt(colliderId: number): SmashTarget | null;
+  hitStructure(z: Zombie, target: SmashTarget): void;
 }
 
 export interface ZombieHooks {
@@ -86,10 +96,16 @@ export class Zombie implements Hittable {
   private stagger = 0;
   private deadTime = 0;
   private groanTimer = 0;
+  /** Collider id the center whisker last hit (-1 = clear). */
+  private blockId = -1;
+  private probeId = -1;
+  private smashTarget: SmashTarget | null = null;
+  /** Set by the progress check when stuck against collider `stuckOn`. */
+  private stuckOn = -1;
 
   private readonly body: AABB = makeAABB(0, 0, 0, 0, 0, 0);
   private readonly ray: Ray = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 };
-  private readonly rayHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+  private readonly rayHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0, id: -1 };
   private readonly queryBox: AABB = makeAABB(0, 0, 0, 0, 0, 0);
   private readonly hits: AABB[] = [];
 
@@ -121,6 +137,8 @@ export class Zombie implements Hittable {
     this.fall = this.sink = this.flash = this.attackAnim = this.armRaise = 0;
     this.deadTime = this.stagger = this.detour = this.avoid = 0;
     this.lastSeen = Infinity;
+    this.blockId = -1;
+    this.smashTarget = null;
     this.thinkTimer = Math.random() * ZOMBIE.thinkInterval; // stagger AI across frames
     this.whiskerTimer = Math.random() * ZOMBIE.whiskerInterval;
     this.groanTimer = rand(1, ZOMBIE.groanInterval.max);
@@ -135,7 +153,7 @@ export class Zombie implements Hittable {
 
   /** Something drew attention to (x, z): a gunshot or being shot. */
   alert(x: number, z: number): void {
-    if (!this.alive || this.state === 'chase' || this.state === 'attack') return;
+    if (!this.alive || this.state === 'chase' || this.state === 'attack' || this.state === 'smash') return;
     this.targetX = x;
     this.targetZ = z;
     this.state = 'chase';
@@ -245,18 +263,37 @@ export class Zombie implements Hittable {
         }
         const reached = this.moveToward(this.targetX, this.targetZ, speed, dt, ctx.world, true);
         if (reached && !seen) this.enterIdle();
+        else if (this.stuckOn >= 0) {
+          // Blocked by a player structure: break through it (unless the player is in reach anyway).
+          const t = ctx.structureAt(this.stuckOn);
+          this.stuckOn = -1;
+          const near = dx * dx + dz * dz < (ZOMBIE.attackRange + 0.6) ** 2 && canReach;
+          if (t && t.alive && !near) {
+            this.smashTarget = t;
+            this.state = 'smash';
+            this.stateTimer = 0;
+            this.struck = false;
+            this.velX = this.velZ = 0;
+          } else {
+            this.startDetour(Math.atan2(this.targetX - this.pos.x, this.targetZ - this.pos.z));
+          }
+        }
         break;
       }
 
       case 'attack':
         this.updateAttack(dt, ctx);
         break;
+
+      case 'smash':
+        this.updateSmash(dt, ctx);
+        break;
     }
 
     // Walk animation follows actual movement speed.
     const moving = Math.hypot(this.velX, this.velZ);
     this.walkPhase += moving * dt * 2.4;
-    const raised = this.state === 'chase' || this.state === 'attack' ? 1 : 0;
+    const raised = this.state === 'chase' || this.state === 'attack' || this.state === 'smash' ? 1 : 0;
     this.armRaise += (raised - this.armRaise) * (1 - Math.exp(-5 * dt));
     this.updateHead();
   }
@@ -385,6 +422,36 @@ export class Zombie implements Hittable {
     }
   }
 
+  private updateSmash(dt: number, ctx: ZombieContext): void {
+    const t = this.smashTarget;
+    const p = ctx.playerPos;
+    const pdx = p.x - this.pos.x;
+    const pdz = p.z - this.pos.z;
+    const playerClose =
+      this.lastSeen < ZOMBIE.thinkInterval * 1.5 && pdx * pdx + pdz * pdz < ZOMBIE.attackRange * ZOMBIE.attackRange * 2 && Math.abs(p.y - this.pos.y) < 1.3;
+    if (!t || !t.alive || playerClose) {
+      if (this.stateTimer < ZOMBIE.attackWindup) {
+        this.smashTarget = null;
+        this.attackAnim = 0;
+        this.state = 'chase';
+        this.resetProgress();
+        return;
+      }
+    }
+    this.decelerate(dt);
+    this.stateTimer += dt;
+    this.attackAnim = Math.min(1, this.stateTimer / ZOMBIE.attackWindup);
+    if (!this.struck && this.stateTimer >= ZOMBIE.attackWindup) {
+      this.struck = true;
+      if (t && t.alive) ctx.hitStructure(this, t);
+    }
+    if (this.stateTimer >= this.type.attackCooldown) {
+      this.stateTimer = 0;
+      this.struck = false;
+      this.attackAnim = 0;
+    }
+  }
+
   private updateDeath(dt: number): void {
     this.deadTime += dt;
     this.fall = Math.min(1, this.deadTime / ZOMBIE.fallTime);
@@ -436,6 +503,7 @@ export class Zombie implements Hittable {
   private updateWhiskers(base: number, world: World, len: number): void {
     const A = ZOMBIE.whiskerAngle;
     const center = this.probe(base, len, world);
+    this.blockId = center < len ? this.probeId : -1;
     const left = this.probe(base + A, len, world);
     const right = this.probe(base - A, len, world);
     if (center < len) {
@@ -455,20 +523,31 @@ export class Zombie implements Hittable {
     r.dx = Math.sin(yaw);
     r.dy = 0;
     r.dz = Math.cos(yaw);
-    return world.raycast(r, len + this.radius, this.rayHit) ? this.rayHit.t - this.radius : len;
+    if (world.raycast(r, len + this.radius, this.rayHit)) {
+      this.probeId = this.rayHit.id;
+      return this.rayHit.t - this.radius;
+    }
+    this.probeId = -1;
+    return len;
   }
 
   private checkProgress(dt: number, base: number): void {
     this.progressTimer += dt;
     if (this.progressTimer < ZOMBIE.stuckCheck) return;
     const moved = Math.hypot(this.pos.x - this.progressX, this.pos.z - this.progressZ);
-    if (moved < ZOMBIE.stuckDistance && this.stagger <= 0) {
-      // Stuck on geometry: walk sideways for a while to get around it.
-      this.detour = ZOMBIE.detourTime;
-      const side = this.avoid !== 0 ? Math.sign(this.avoid) : Math.random() < 0.5 ? 1 : -1;
-      this.detourYaw = base + side * (Math.PI / 2);
+    if (moved < ZOMBIE.stuckDistance && this.stagger <= 0 && this.blockId >= 0 && this.detour <= 0) {
+      this.stuckOn = this.blockId;
+    } else if (moved < ZOMBIE.stuckDistance && this.stagger <= 0) {
+      this.startDetour(base);
     }
     this.resetProgress();
+  }
+
+  /** Stuck on geometry: walk sideways for a while to get around it. */
+  private startDetour(base: number): void {
+    this.detour = ZOMBIE.detourTime;
+    const side = this.avoid !== 0 ? Math.sign(this.avoid) : Math.random() < 0.5 ? 1 : -1;
+    this.detourYaw = base + side * (Math.PI / 2);
   }
 
   private resetProgress(): void {

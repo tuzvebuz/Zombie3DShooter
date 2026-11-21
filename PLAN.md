@@ -308,3 +308,34 @@ how to test, then stop for confirmation.
    roofless ruins you *can* walk into.
 7. **Grenade without cooking**; **Q** = quick-use medkit.
 8. Workbench lives in build mode (player places it), not pre-placed.
+
+---
+
+## 18. Progress
+
+- **M1–M4** done (world, gunplay, zombies, health/stamina/HUD).
+- **M5 — Inventory & looting** done:
+  - 20-slot inventory with stacking, drag & drop, tooltips, right-click Use/Drop (Tab).
+  - Loot points: supply crates, car bags, wood piles (6 wood piles around the base). Hold E 1.5 s;
+    looted points turn grey and refill after `LOOT.respawnTime` (until the day cycle in M7).
+  - Zombie drops (spinning pickups, auto-collected), overflow from full inventory drops as pickups.
+  - Shotgun (slot 3, 9 pellets, Shells), frag grenade (G, 3 s fuse, bounces, radial damage with
+    LOS, self-damage, camera shake), medkit (Q, +50 HP above the regen cap). Ammo = inventory items.
+  - Hotbar (bottom center) and wood/scrap counters (top right).
+- **M6 — Base building** done:
+  - B = build mode: bottom bar (1–7 / wheel), ghost on a 1 m grid (green/red with reason),
+    R rotate, T wood/metal tier, LMB place, RMB/B exit. Costs from inventory, then base storage
+    when inside the base radius.
+  - Wall, Gate (E open/close, open = no collider), Barricade, Watchtower (stairs, 3 m deck;
+    turrets/crates/barricades can be placed on the deck), Auto-turret (base-storage Rifle Ammo,
+    "NO AMMO" label, shoots over own pieces lower than its head), Workbench, Storage crate.
+  - Structure HP + floating health bars, debris on destruction. Zombies blocked by a structure
+    (stuck while the center whisker hits it) smash through it. The Core is a structure with HP.
+  - Hammer (slot 4): melee swing, hold E to repair (costs a fraction of the build cost), RMB to
+    upgrade wood → metal. Workbench: Metal Reinforcement, Weapon Damage I–III.
+  - Debug (`?debug`): F2 = +100 of every resource.
+
+**How to test M5/M6**: `npm run dev`, open `/?debug`. Walk to the wood piles around the base pad
+and hold E. Press Tab for the inventory. B → build walls/gate/tower; build a workbench and buy
+Metal Reinforcement; equip the hammer (4), aim at a wall, RMB to upgrade. Put rifle ammo in a
+storage crate (shift-click) and watch a turret fire. F4 spawns a zombie to test smashing.

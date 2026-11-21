@@ -52,8 +52,9 @@ export const CAMERA = {
 
 // ------------------------------------------------------------------ weapons
 
-export type AmmoType = 'rifle' | 'shells';
-export type GunSound = 'pistol' | 'rifle';
+export type ItemId = 'wood' | 'scrap' | 'rifleAmmo' | 'shells' | 'medkit' | 'grenade';
+export type AmmoType = 'rifleAmmo' | 'shells';
+export type GunSound = 'pistol' | 'rifle' | 'shotgun' | 'swing';
 
 interface Vec3 {
   x: number;
@@ -84,6 +85,8 @@ export interface WeaponDef {
   muzzle: Vec3;
   kickBack: number;
   kickRot: number;
+  /** Melee tools (hammer): LMB swings instead of firing; no ADS, no ammo. */
+  melee?: boolean;
 }
 
 export const WEAPONS = {
@@ -117,7 +120,7 @@ export const WEAPONS = {
     reloadTime: 2.1,
     pellets: 1,
     range: 200,
-    ammo: 'rifle',
+    ammo: 'rifleAmmo',
     sound: 'rifle',
     spread: { base: 0.008, perShot: 0.006, moveAdd: 0.03, airAdd: 0.07, adsMul: 0.3, crouchMul: 0.7, max: 0.06, recovery: 0.15 },
     recoil: { kickPitch: 0.008, kickYawRange: 0.005, recoverySpeed: 7 },
@@ -129,7 +132,54 @@ export const WEAPONS = {
     kickBack: 0.035,
     kickRot: 0.06,
   },
+  shotgun: {
+    name: 'Shotgun',
+    auto: false,
+    rpm: 75,
+    damage: 15, // per pellet
+    magSize: 6,
+    reloadTime: 2.6,
+    pellets: 9,
+    range: 45,
+    ammo: 'shells',
+    sound: 'shotgun',
+    spread: { base: 0.07, perShot: 0.01, moveAdd: 0.015, airAdd: 0.03, adsMul: 0.7, crouchMul: 0.9, max: 0.09, recovery: 0.1 },
+    recoil: { kickPitch: 0.06, kickYawRange: 0.015, recoverySpeed: 6 },
+    adsFov: 68,
+    adsTime: 0.2,
+    hipPos: { x: 0.17, y: -0.16, z: -0.7 },
+    adsPos: { x: 0, y: 0, z: -0.78 },
+    muzzle: { x: 0, y: -0.03, z: -0.22 },
+    kickBack: 0.09,
+    kickRot: 0.2,
+  },
+  hammer: {
+    name: 'Hammer',
+    auto: false,
+    rpm: 100, // swings per minute
+    damage: 45,
+    magSize: 0,
+    reloadTime: 0,
+    pellets: 1,
+    range: 2.3,
+    ammo: null,
+    sound: 'swing',
+    spread: { base: 0, perShot: 0, moveAdd: 0, airAdd: 0, adsMul: 1, crouchMul: 1, max: 0, recovery: 0 },
+    recoil: { kickPitch: 0, kickYawRange: 0, recoverySpeed: 8 },
+    adsFov: 80,
+    adsTime: 0.1,
+    hipPos: { x: 0.24, y: -0.2, z: -0.5 },
+    adsPos: { x: 0.24, y: -0.2, z: -0.5 },
+    muzzle: { x: 0, y: 0, z: 0 },
+    kickBack: -0.12,
+    kickRot: -0.9,
+    melee: true,
+  },
 } satisfies Record<string, WeaponDef>;
+
+export const MELEE = {
+  hitDelay: 0.12, // seconds into the swing when the hit lands
+} as const;
 
 export const COMBAT = {
   headMul: 2,
@@ -142,11 +192,111 @@ export const COMBAT = {
   crosshairMinGap: 4,
 } as const;
 
-/** Temporary starting reserve until the inventory exists (milestone 5). */
-export const START_AMMO: Record<AmmoType, number> = {
-  rifle: 120,
-  shells: 0,
+// ------------------------------------------------------------------ items & inventory
+
+export interface ItemDef {
+  name: string;
+  desc: string;
+  color: string; // CSS color of the item icon
+  maxStack: number;
+  usable: boolean;
+}
+
+export const ITEMS: Record<ItemId, ItemDef> = {
+  wood: { name: 'Wood', desc: 'Building material.', color: '#a0743f', maxStack: 100, usable: false },
+  scrap: { name: 'Scrap Metal', desc: 'Metal parts for building and upgrades.', color: '#8d969c', maxStack: 100, usable: false },
+  rifleAmmo: { name: 'Rifle Ammo', desc: 'Assault rifle rounds. Turrets use it from base storage.', color: '#d8b04a', maxStack: 120, usable: false },
+  shells: { name: 'Shells', desc: 'Shotgun shells.', color: '#c2453a', maxStack: 40, usable: false },
+  medkit: { name: 'Medkit', desc: 'Heals 50 HP, also above the regeneration cap. [Q]', color: '#e8e6e1', maxStack: 5, usable: true },
+  grenade: { name: 'Frag Grenade', desc: 'Throw with [G]. 3 s fuse.', color: '#5b6b45', maxStack: 6, usable: false },
 };
+
+export const ITEM_ORDER: ItemId[] = ['wood', 'scrap', 'rifleAmmo', 'shells', 'medkit', 'grenade'];
+
+export type Cost = Partial<Record<ItemId, number>>;
+
+export const INVENTORY = {
+  playerSlots: 20,
+  storageSlots: 40,
+  /** Inside this distance from the base center, build/upgrade costs can also come from base storage. */
+  baseRadius: 30,
+} as const;
+
+export const START_INVENTORY: Cost = { rifleAmmo: 90, shells: 12, medkit: 1, grenade: 2, wood: 40, scrap: 10 };
+
+export const MEDKIT = { heal: 50, cooldown: 1 } as const;
+
+export const INTERACT = {
+  range: 2.4, // loot points: max horizontal distance from the player
+  facing: 0.35, // min dot(view forward, direction to target) on XZ
+  structureRange: 3.2, // aimed structures (gate, workbench, crate, repair)
+} as const;
+
+export type LootKind = 'crate' | 'car' | 'woodpile';
+
+export interface LootRoll {
+  id: ItemId;
+  min: number;
+  max: number;
+  chance: number;
+}
+
+export const LOOT = {
+  searchTime: 1.5,
+  /** Until the day/night cycle exists (milestone 7), looted points refill after this long. */
+  respawnTime: 300,
+  tables: {
+    crate: [
+      { id: 'rifleAmmo', min: 20, max: 45, chance: 0.75 },
+      { id: 'shells', min: 4, max: 10, chance: 0.5 },
+      { id: 'medkit', min: 1, max: 1, chance: 0.3 },
+      { id: 'grenade', min: 1, max: 2, chance: 0.25 },
+      { id: 'scrap', min: 3, max: 8, chance: 0.4 },
+    ],
+    car: [
+      { id: 'scrap', min: 8, max: 18, chance: 1 },
+      { id: 'rifleAmmo', min: 10, max: 25, chance: 0.35 },
+      { id: 'medkit', min: 1, max: 1, chance: 0.15 },
+    ],
+    woodpile: [
+      { id: 'wood', min: 15, max: 30, chance: 1 },
+      { id: 'scrap', min: 1, max: 4, chance: 0.25 },
+    ],
+  } satisfies Record<LootKind, LootRoll[]>,
+  /** Of all cars on the map, this fraction can be searched. */
+  carChance: 0.65,
+  woodpilesNearBase: 6,
+} as const;
+
+export const PICKUPS = {
+  pool: 48,
+  radius: 1.3,
+  lifetime: 120,
+  size: 0.28,
+} as const;
+
+/** Chance-based zombie drops. */
+export const DROPS: LootRoll[] = [
+  { id: 'rifleAmmo', min: 6, max: 15, chance: 0.3 },
+  { id: 'shells', min: 2, max: 4, chance: 0.12 },
+  { id: 'scrap', min: 1, max: 4, chance: 0.25 },
+  { id: 'wood', min: 2, max: 6, chance: 0.2 },
+];
+
+export const GRENADE = {
+  fuse: 3,
+  throwSpeed: 15,
+  throwUp: 3.5,
+  cooldown: 0.9,
+  gravity: 18,
+  bounce: 0.35,
+  friction: 3,
+  radius: 7,
+  damage: 220, // at the center, linear falloff to 0 at the radius
+  selfDamageMul: 0.35,
+  shake: 0.6,
+  pool: 6,
+} as const;
 
 export const VIEWMODEL = {
   fov: 60,
@@ -219,10 +369,12 @@ export interface ZombieTypeDef {
   damage: number;
   scale: number;
   attackCooldown: number;
+  /** Damage multiplier against structures. */
+  structureMul: number;
 }
 
 export const ZOMBIE_TYPES = {
-  walker: { hp: 100, speed: 1.7, damage: 15, scale: 1, attackCooldown: 1.2 },
+  walker: { hp: 100, speed: 1.7, damage: 15, scale: 1, attackCooldown: 1.2, structureMul: 1 },
 } satisfies Record<string, ZombieTypeDef>;
 
 export const ZOMBIE = {
@@ -262,6 +414,77 @@ export const ZOMBIE = {
   testPopulation: 14,
   respawnDelay: 4,
   spawnMinDist: 35,
+} as const;
+
+// ------------------------------------------------------------------ building
+
+export type StructureType = 'wall' | 'gate' | 'barricade' | 'watchtower' | 'turret' | 'workbench' | 'storage';
+export type Tier = 'wood' | 'metal';
+
+export interface StructureDef {
+  name: string;
+  hp: number;
+  cost: Cost;
+  /** Extra cost for metal (upgrade with the hammer, or build directly once unlocked). */
+  metalCost: Cost | null;
+}
+
+export const STRUCTURES: Record<StructureType, StructureDef> = {
+  wall: { name: 'Wall', hp: 400, cost: { wood: 20 }, metalCost: { scrap: 15 } },
+  gate: { name: 'Gate', hp: 350, cost: { wood: 30 }, metalCost: { scrap: 20 } },
+  barricade: { name: 'Barricade', hp: 160, cost: { wood: 8 }, metalCost: { scrap: 6 } },
+  watchtower: { name: 'Watchtower', hp: 600, cost: { wood: 50 }, metalCost: null },
+  turret: { name: 'Auto-turret', hp: 250, cost: { scrap: 30, wood: 10 }, metalCost: null },
+  workbench: { name: 'Workbench', hp: 300, cost: { wood: 25, scrap: 10 }, metalCost: null },
+  storage: { name: 'Storage Crate', hp: 250, cost: { wood: 15 }, metalCost: null },
+};
+
+export const BUILD_ORDER: StructureType[] = ['wall', 'gate', 'barricade', 'watchtower', 'turret', 'workbench', 'storage'];
+
+export const BUILD = {
+  reach: 8,
+  grid: 1,
+  metalHpMul: 2.5,
+  /** Repairing costs this fraction of the build cost per full max-HP repaired. */
+  repairCostFrac: 0.5,
+  repairStep: 0.1, // fraction of max HP repaired per repair tick
+  repairTick: 0.35, // seconds per repair tick while E is held
+  barShowRange: 30,
+  /** Low static colliders (curbs) that don't block placement. */
+  ignoreBelow: 0.2,
+} as const;
+
+export const TURRET = {
+  range: 26,
+  rpm: 240,
+  damage: 16,
+  turnSpeed: 5,
+  aimTolerance: 0.12, // radians
+  headY: 1.3,
+  thinkInterval: 0.25,
+} as const;
+
+export const CORE = {
+  hp: 3000,
+  /** Full repair cost (repairs are charged per repair tick, like structures). */
+  repairCost: { wood: 60, scrap: 60 } as Cost,
+} as const;
+
+export type UpgradeId = 'metal' | 'dmg1' | 'dmg2' | 'dmg3';
+
+export const UPGRADES: Record<UpgradeId, { name: string; desc: string; cost: Cost; requires: UpgradeId | null }> = {
+  metal: { name: 'Metal Reinforcement', desc: 'Unlocks metal walls, gates and barricades (2.5× HP). Upgrade wood pieces with [RMB] + hammer.', cost: { wood: 40, scrap: 40 }, requires: null },
+  dmg1: { name: 'Weapon Damage I', desc: '+10% damage for all guns.', cost: { scrap: 30 }, requires: null },
+  dmg2: { name: 'Weapon Damage II', desc: '+10% damage for all guns.', cost: { scrap: 60, wood: 20 }, requires: 'dmg1' },
+  dmg3: { name: 'Weapon Damage III', desc: '+10% damage for all guns.', cost: { scrap: 100, wood: 40 }, requires: 'dmg2' },
+};
+
+export const UPGRADE_ORDER: UpgradeId[] = ['metal', 'dmg1', 'dmg2', 'dmg3'];
+
+export const DEBRIS = {
+  pool: 160,
+  life: 2.2,
+  gravity: 14,
 } as const;
 
 export const AUDIO = {
@@ -335,4 +558,18 @@ export const COLORS = {
   blood: 0x7a1010,
   dust: 0x9c968a,
   tracer: 0xffd9a0,
+  looted: 0x55524d,
+  lootCrate: 0x6b7a3a,
+  lootBand: 0xffb02e,
+  logs: 0x7a5432,
+  logEnds: 0xb08a5a,
+  bag: 0x3e4a32,
+  wood: 0x8a6438,
+  woodDark: 0x5e4426,
+  metal: 0x6c747a,
+  metalDark: 0x464c51,
+  grenade: 0x4a5a38,
+  explosion: 0xffa040,
+  ghostOk: 0x4cff7a,
+  ghostBad: 0xff4040,
 } as const;

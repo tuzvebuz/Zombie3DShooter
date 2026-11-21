@@ -1,5 +1,35 @@
 import * as THREE from 'three';
-import { CAMERA, DEFAULT_QUALITY, FLASHLIGHT, HUD_FX, ZOMBIE_TYPES } from './config';
+import {
+  CAMERA,
+  COLORS,
+  DEFAULT_QUALITY,
+  DROPS,
+  FLASHLIGHT,
+  GRENADE,
+  HEALTH,
+  HUD_FX,
+  INVENTORY,
+  ITEMS,
+  ITEM_ORDER,
+  ItemId,
+  MEDKIT,
+  START_INVENTORY,
+  UPGRADES,
+  UpgradeId,
+  ZOMBIE_TYPES,
+} from './config';
+import { BuildSystem } from './building/BuildSystem';
+import { Structure } from './building/Structure';
+import { StructureManager } from './building/StructureManager';
+import { Debris } from './fx/Debris';
+import { Explosions } from './fx/Explosions';
+import { Inventory, canAfford, pay } from './items/Inventory';
+import { LootManager, rollLoot } from './items/LootManager';
+import { Pickups } from './items/Pickups';
+import { Interaction } from './player/Interaction';
+import { InventoryUI } from './ui/InventoryUI';
+import { WorkbenchUI } from './ui/WorkbenchUI';
+import { Grenades } from './weapons/Grenades';
 import { HitRegistry } from './combat/Hittable';
 import { AudioEngine } from './core/AudioEngine';
 import { EventBus } from './core/EventBus';
@@ -19,8 +49,9 @@ import { Lighting } from './world/Lighting';
 import { MapBuilder } from './world/MapBuilder';
 import { World } from './world/World';
 
-/** start → playing ⇄ paused; playing → dying → gameOver → (restart) → playing. */
-type GameState = 'start' | 'playing' | 'paused' | 'dying' | 'gameOver';
+/** start → playing ⇄ paused; playing ⇄ ui (inventory/workbench, world keeps running);
+ *  playing → dying → gameOver → (restart) → playing. */
+type GameState = 'start' | 'playing' | 'paused' | 'ui' | 'dying' | 'gameOver';
 
 /** Pause before the game over screen appears once the death fall has finished. */
 const GAME_OVER_DELAY = 0.6;
@@ -44,6 +75,21 @@ export class Game {
   readonly weapons: WeaponManager;
   readonly health: Health;
   readonly zombies: ZombieManager;
+  readonly inventory = new Inventory(INVENTORY.playerSlots);
+  readonly storage = new Inventory(INVENTORY.storageSlots);
+  readonly upgrades = new Set<UpgradeId>();
+  readonly structures: StructureManager;
+  readonly build: BuildSystem;
+  readonly interaction: Interaction;
+  private readonly pickups: Pickups;
+  private readonly loot: LootManager;
+  private readonly grenades: Grenades;
+  private readonly explosions: Explosions;
+  private readonly debris: Debris;
+  private readonly inventoryUI: InventoryUI;
+  private readonly workbenchUI: WorkbenchUI;
+  private medkitCooldown = 0;
+  private lockRetry = 0;
 
   private state: GameState = 'start';
   private deathTimer = 0;
@@ -66,12 +112,22 @@ export class Game {
     this.scene.add(this.camera);
 
     this.lighting = new Lighting(this.scene);
-    new MapBuilder(this.scene, this.world).build();
+    const map = new MapBuilder(this.scene, this.world);
+    map.build();
     this.player = new PlayerController(this.world, this.camera, this.stamina);
     this.health = new Health(this.events);
 
     this.tracers = new Tracers(this.scene);
     this.particles = new Particles(this.scene);
+    this.debris = new Debris(this.scene);
+    this.explosions = new Explosions(this.scene);
+    this.inventory.fill(START_INVENTORY);
+    this.pickups = new Pickups(this.scene, (id, n) => {
+      this.audio.play('pickup');
+      this.hud.pushFeed(`+${n} ${ITEMS[id].name}`, 'info');
+    });
+    this.loot = new LootManager(this.scene, map.lootSpots, (items, x, y, z) => this.onLoot(items, x, y, z));
+    this.grenades = new Grenades(this.scene, this.world, (x, y, z) => this.explode(x, y, z));
     this.weapons = new WeaponManager({
       player: this.player,
       world: this.world,
@@ -84,6 +140,8 @@ export class Game {
       camera: this.camera,
       scene: this.scene,
       events: this.events,
+      inventory: this.inventory,
+      grenades: this.grenades,
     });
     this.zombies = new ZombieManager({
       scene: this.scene,
@@ -96,6 +154,65 @@ export class Game {
     });
     this.zombies.populate();
 
+    this.structures = new StructureManager({
+      scene: this.scene,
+      world: this.world,
+      audio: this.audio,
+      events: this.events,
+      debris: this.debris,
+      tracers: this.tracers,
+      zombies: this.zombies.zombies,
+      storage: this.storage,
+      camera: this.camera,
+      playerBox: () => this.player.getBox(),
+    });
+    this.zombies.structures = {
+      structureAt: (id) => this.structures.structureAt(id),
+      damage: (t, amount) => this.structures.damage(t as Structure, amount),
+    };
+    this.interaction = new Interaction(this.hud);
+    this.build = new BuildSystem(
+      {
+        player: this.player,
+        weapons: this.weapons,
+        structures: this.structures,
+        inventory: this.inventory,
+        storage: this.storage,
+        world: this.world,
+        zombies: this.zombies.zombies,
+        audio: this.audio,
+        hud: this.hud,
+        metalUnlocked: () => this.upgrades.has('metal'),
+        openWorkbench: () => this.openUI('bench'),
+        openStorage: () => this.openUI('storage'),
+        notify: (t) => this.hud.pushFeed(t, 'info'),
+      },
+      this.scene,
+    );
+    this.interaction.add((eye, fwd) => this.loot.find(eye, fwd));
+    this.interaction.add((eye, fwd) => this.build.find(eye, fwd));
+
+    this.inventoryUI = new InventoryUI(this.inventory, this.storage, {
+      onUse: (inv, i) => {
+        if (inv.slots[i]?.id === 'medkit') this.useMedkit(inv);
+      },
+      onDrop: (inv, i) => this.dropSlot(inv, i),
+      onClose: () => this.closeUI(),
+      onClick: () => this.audio.play('uiClick'),
+    });
+    this.workbenchUI = new WorkbenchUI({
+      owned: (id) => this.upgrades.has(id),
+      affordable: (id) => canAfford(UPGRADES[id].cost, this.build.sources()),
+      buy: (id) => this.buyUpgrade(id),
+      onClose: () => this.closeUI(),
+    });
+
+    this.events.on('coreDestroyed', () => {
+      if (this.state === 'dying' || this.state === 'gameOver') return;
+      this.hud.showNotice('THE CORE HAS FALLEN', 3);
+      this.health.takeDamage(HEALTH.max * 10, 0, 0);
+    });
+
     this.events.on('playerDamaged', (e) => this.hud.damage(e.amount, e.sourceX, e.sourceZ));
     this.events.on('playerDied', () => {
       this.state = 'dying';
@@ -105,6 +222,7 @@ export class Game {
       this.stats.kills++;
       if (e.headshot) this.stats.headshots++;
       this.hud.pushFeed(e.headshot ? 'Walker killed — HEADSHOT' : 'Walker killed', e.headshot ? 'headshot' : 'kill');
+      for (const [id, n] of rollLoot(DROPS)) this.pickups.spawn(id, n, e.x, 0, e.z);
     });
 
     // Toggled via intensity rather than `visible` so the light count (and shaders) never change.
@@ -151,6 +269,7 @@ export class Game {
   private onLockChange(locked: boolean): void {
     if (locked) {
       if (this.state === 'start' || this.state === 'paused') this.state = 'playing';
+      window.clearTimeout(this.lockRetry);
     } else if (this.state === 'playing') {
       this.state = 'paused';
       document.getElementById('start-sub')!.textContent = 'Paused';
@@ -166,7 +285,126 @@ export class Game {
     if (document.pointerLockElement) document.exitPointerLock();
   }
 
+  // ------------------------------------------------------------------ menus over the game
+
+  private openUI(kind: 'inventory' | 'storage' | 'bench'): void {
+    if (this.state !== 'playing') return;
+    this.state = 'ui';
+    this.interaction.reset();
+    if (kind === 'bench') this.workbenchUI.open();
+    else this.inventoryUI.open(kind === 'storage');
+    this.audio.play('uiClick');
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  private closeUI(): void {
+    if (this.state !== 'ui') return;
+    this.state = 'paused';
+    this.lock();
+    // If the browser refuses the immediate re-lock, fall back to the click-to-resume overlay.
+    this.lockRetry = window.setTimeout(() => {
+      if (this.state === 'paused') {
+        document.getElementById('start-sub')!.textContent = 'Paused';
+        document.getElementById('start-btn')!.textContent = 'Resume';
+        this.overlay.classList.remove('hidden');
+      }
+    }, 300);
+  }
+
+  // ------------------------------------------------------------------ items
+
+  private onLoot(items: [ItemId, number][], x: number, y: number, z: number): void {
+    this.audio.play('loot');
+    if (items.length === 0) this.hud.pushFeed('Nothing useful', 'info');
+    for (const [id, n] of items) {
+      const left = this.inventory.add(id, n);
+      if (n - left > 0) this.hud.pushFeed(`+${n - left} ${ITEMS[id].name}`, 'info');
+      if (left > 0) {
+        this.pickups.spawn(id, left, x, y, z);
+        this.hud.pushFeed('Inventory full — items dropped', 'info');
+      }
+    }
+  }
+
+  private useMedkit(inv: Inventory = this.inventory): void {
+    if (this.medkitCooldown > 0 || inv.count('medkit') === 0 || this.health.dead) return;
+    if (this.health.hp >= HEALTH.max) {
+      this.hud.pushFeed('Health is full', 'info');
+      return;
+    }
+    inv.remove('medkit', 1);
+    this.health.heal(MEDKIT.heal);
+    this.medkitCooldown = MEDKIT.cooldown;
+    this.audio.play('medkit');
+    this.hud.pushFeed(`+${MEDKIT.heal} HP`, 'info');
+  }
+
+  private dropSlot(inv: Inventory, i: number): void {
+    const s = inv.slots[i];
+    if (!s) return;
+    inv.slots[i] = null;
+    inv.version++;
+    const p = this.player.position;
+    const yaw = this.player.yaw;
+    this.pickups.spawn(s.id, s.n, p.x - Math.sin(yaw) * 1.8, p.y, p.z - Math.cos(yaw) * 1.8);
+  }
+
+  private buyUpgrade(id: UpgradeId): void {
+    const u = UPGRADES[id];
+    if (this.upgrades.has(id) || (u.requires && !this.upgrades.has(u.requires))) return;
+    if (!pay(u.cost, this.build.sources())) {
+      this.audio.play('denied');
+      return;
+    }
+    this.upgrades.add(id);
+    this.applyUpgrades();
+    this.audio.play('upgrade');
+    this.hud.pushFeed(`${u.name} unlocked`, 'headshot');
+  }
+
+  private applyUpgrades(): void {
+    let dmg = 0;
+    for (const id of ['dmg1', 'dmg2', 'dmg3'] as UpgradeId[]) if (this.upgrades.has(id)) dmg++;
+    this.weapons.damageMul = 1 + dmg * 0.1;
+  }
+
+  private readonly blastNormal = new THREE.Vector3(0, 1, 0);
+  private readonly blastPos = new THREE.Vector3();
+
+  private explode(x: number, y: number, z: number): void {
+    this.explosions.spawn(x, y, z);
+    this.audio.playAt('explosion', x, y, z);
+    this.blastPos.set(x, y, z);
+    this.particles.burst(this.blastPos, this.blastNormal, COLORS.dust, 24, 7);
+    this.particles.burst(this.blastPos, this.blastNormal, COLORS.explosion, 10, 5);
+    const r = this.zombies.explode(x, y, z, GRENADE.radius, GRENADE.damage);
+    if (r.hits > 0) {
+      this.hud.hit(r.kills > 0 ? 'kill' : 'hit', false);
+      this.audio.play(r.kills > 0 ? 'kill' : 'hit');
+    }
+    const p = this.player.position;
+    const dist = Math.hypot(p.x - x, p.y + 1 - y, p.z - z);
+    this.player.shake = Math.max(this.player.shake, GRENADE.shake * Math.max(0, 1 - dist / (GRENADE.radius * 4)) * 2);
+    this.player.getEye(this.blastPos);
+    this.blastPos.y -= 0.6;
+    if (dist < GRENADE.radius && this.zombies.lineOfSight(x, y, z, this.blastPos)) {
+      this.health.takeDamage(GRENADE.damage * GRENADE.selfDamageMul * (1 - dist / GRENADE.radius), x, z);
+    }
+  }
+
   private restart(): void {
+    this.inventoryUI.close();
+    this.workbenchUI.close();
+    this.inventory.fill(START_INVENTORY);
+    this.storage.clear();
+    this.upgrades.clear();
+    this.structures.reset();
+    this.build.reset();
+    this.interaction.reset();
+    this.loot.respawnAll();
+    this.pickups.clear();
+    this.grenades.clear();
+    this.medkitCooldown = 0;
     this.hud.hideGameOver();
     this.hud.clearDamage();
     this.zombies.clear();
@@ -175,6 +413,7 @@ export class Game {
     this.health.reset();
     this.stamina.reset();
     this.weapons.reset();
+    this.applyUpgrades();
     this.stats.reset();
     // Becomes 'playing' once the pointer lock is granted; if the browser refuses the immediate
     // re-lock, the overlay stays up so a click resumes.
@@ -187,7 +426,7 @@ export class Game {
   // ------------------------------------------------------------------ loop
 
   private frame(now: number): void {
-    const running = this.state === 'playing' || this.state === 'dying';
+    const running = this.state === 'playing' || this.state === 'dying' || this.state === 'ui';
     this.time.timeScale = running ? 1 : 0;
     const steps = this.time.beginFrame(now);
 
@@ -202,11 +441,19 @@ export class Game {
 
     const dt = this.time.frameDt;
     const alive = this.state !== 'dying' && this.state !== 'gameOver';
-    this.player.updateCamera();
+    this.player.updateCamera(dt);
     if (alive) this.weapons.frame(dt, this.mouse.x, this.mouse.y);
     this.zombies.render();
     this.tracers.update(dt);
     this.particles.update(dt);
+    this.debris.update(dt);
+    this.explosions.update(dt);
+    this.build.frame();
+    this.structures.render();
+    this.inventoryUI.refresh();
+    this.hud.setCounts((id) => this.inventory.count(id));
+    const core = this.structures.core;
+    this.hud.setCore(core.hp, core.maxHp, core.damaged);
     this.lighting.follow(this.player.position);
     this.hud.setVitals(this.health.hp, this.health.fraction, this.stamina.fraction, this.stamina.exhausted);
     this.hud.update(dt, this.player.position.x, this.player.position.z, this.player.yaw);
@@ -238,15 +485,36 @@ export class Game {
         this.events.emit('flashlightToggled', { on });
       }
       if (this.debug) this.debugKeys();
+      if (this.state === 'playing') {
+        if (this.input.wasPressed('Tab')) this.openUI('inventory');
+        if (this.input.wasPressed('KeyQ')) this.useMedkit();
+      }
+      this.build.tick(this.input);
       this.player.update(dt, this.input);
       this.weapons.tick(dt, this.input);
+      if (this.state === 'playing') {
+        this.player.getEye(this.eye);
+        this.camera.getWorldDirection(this.fwd);
+        this.interaction.tick(dt, this.input, this.eye, this.fwd);
+      }
     }
+    this.medkitCooldown -= dt;
     this.health.update(dt);
     this.zombies.update(dt);
+    this.structures.update(dt);
+    this.grenades.update(dt);
+    if (!this.health.dead) this.pickups.update(dt, this.player.position.x, this.player.position.y, this.player.position.z, this.inventory);
+    this.loot.update(dt);
   }
 
-  /** `?debug` only: F1 god mode, F4 spawn a walker in front of the player. */
+  private readonly eye = new THREE.Vector3();
+
+  /** `?debug` only: F1 god mode, F2 +100 of every resource, F4 spawn a walker in front of the player. */
   private debugKeys(): void {
+    if (this.input.wasPressed('F2')) {
+      for (const id of ITEM_ORDER) this.inventory.add(id, Math.min(100, ITEMS[id].maxStack));
+      this.hud.showNotice('+100 OF EVERYTHING', 1.2);
+    }
     if (this.input.wasPressed('F1')) {
       this.health.godMode = !this.health.godMode;
       this.hud.showNotice(this.health.godMode ? 'GOD MODE ON' : 'GOD MODE OFF', 1.2);
@@ -274,7 +542,7 @@ export class Game {
       `FPS ${this.time.fps}  draw calls ${info.calls}  tris ${info.triangles}\n` +
       `pos ${p.x.toFixed(1)} ${p.y.toFixed(2)} ${p.z.toFixed(1)}  ` +
       `${this.player.grounded ? 'grounded' : 'air'}${this.player.crouching ? ' crouch' : ''}${this.player.sprinting ? ' sprint' : ''}\n` +
-      `zombies ${this.zombies.aliveCount}  state ${this.state}  ${this.health.godMode ? 'GOD' : ''}\n` +
-      `F1 god mode  F4 spawn zombie`;
+      `zombies ${this.zombies.aliveCount}  structures ${this.structures.list.length}  loot ${this.loot.count}  state ${this.state}  ${this.health.godMode ? 'GOD' : ''}\n` +
+      `F1 god mode  F2 +100 resources  F4 spawn zombie`;
   }
 }

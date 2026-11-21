@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { COLORS, WORLD } from '../config';
+import { COLORS, LOOT, LootKind, WORLD } from '../config';
 import { Rng } from '../core/Rng';
 import { boxFromBase } from './AABB';
 import { World } from './World';
@@ -12,12 +12,31 @@ interface Range {
 
 const FLOOR_HEIGHT = 3.2;
 
+export interface LootSpot {
+  kind: LootKind;
+  x: number;
+  /** Height of the surface the loot sits on. */
+  y: number;
+  z: number;
+  /** Rotated 90° (cars on north-south roads). */
+  turned: boolean;
+}
+
+/** Footprints of the loot props (they block movement). */
+export const LOOT_SIZE: Record<'crate' | 'woodpile', [number, number, number]> = {
+  crate: [0.9, 0.7, 0.6],
+  woodpile: [1.5, 0.6, 0.9],
+};
+
 /**
  * Builds the town procedurally (seeded, so always the same layout). All static boxes are
  * collected per color and merged into one mesh per material to keep draw calls low.
  */
 export class MapBuilder {
   private readonly rng = new Rng(WORLD.seed);
+  /** Separate stream so loot placement doesn't change the town layout. */
+  private readonly lootRng = new Rng(WORLD.seed + 7);
+  readonly lootSpots: LootSpot[] = [];
   private readonly parts = new Map<number, THREE.BufferGeometry[]>();
   private readonly flats = new Map<number, THREE.BufferGeometry[]>();
   private readonly half = WORLD.size / 2;
@@ -253,6 +272,22 @@ export class MapBuilder {
     if (this.trySolid(x, y0, z, 1, 1, 1, COLORS.crate) && this.rng.chance(0.5)) {
       this.solid(x, y0 + 1, z, 1, 1, 1, COLORS.crate);
     }
+    this.tryLoot('crate', lot, y0);
+  }
+
+  /** Places a loot prop at a free spot in the lot (registers its collider). */
+  private tryLoot(kind: 'crate' | 'woodpile', lot: { minX: number; minZ: number; w: number; d: number }, y0: number): void {
+    const [sx, sy, sz] = LOOT_SIZE[kind];
+    for (let i = 0; i < 6; i++) {
+      const x = lot.minX + this.lootRng.range(2, lot.w - 2);
+      const z = lot.minZ + this.lootRng.range(2, lot.d - 2);
+      const turned = this.lootRng.chance(0.5);
+      const [w, d] = turned ? [sz, sx] : [sx, sz];
+      if (!this.world.isFree(boxFromBase(x, y0 + 0.01, z, w + 1.2, sy, d + 1.2))) continue;
+      this.world.add(boxFromBase(x, y0, z, w, sy, d));
+      this.lootSpots.push({ kind, x, y: y0, z, turned });
+      return;
+    }
   }
 
   /** Mostly open yard with barriers and pallets (pallets are low enough to step onto). */
@@ -269,6 +304,7 @@ export class MapBuilder {
     for (let i = 0; i < 2; i++) {
       this.trySolid(lot.minX + this.rng.range(2, lot.w - 2), y0, lot.minZ + this.rng.range(2, lot.d - 2), 1.2, 0.3, 1.2, COLORS.crate);
     }
+    this.tryLoot(this.lootRng.chance(0.6) ? 'woodpile' : 'crate', lot, y0);
   }
 
   /** Places a solid only where it doesn't intersect existing colliders (other than the ground plate). */
@@ -282,15 +318,7 @@ export class MapBuilder {
     const p = WORLD.basePad;
     this.flat(0, 0, p * 2, p * 2, 0.04, COLORS.basePad);
 
-    // Core generator placeholder (glowing parts are a separate emissive mesh).
-    this.solid(0, 0, 0, 2.6, 1.4, 2.6, COLORS.core);
-    this.solid(0, 1.4, 0, 1.6, 0.8, 1.6, COLORS.core);
-    const glow = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 0.15, 1.7),
-      new THREE.MeshLambertMaterial({ color: COLORS.coreGlow, emissive: COLORS.coreGlow, emissiveIntensity: 0.9 }),
-    );
-    glow.position.set(0, 1.85, 0);
-    this.scene.add(glow);
+    // The Core generator in the center is a structure (see StructureManager).
 
     // A few sandbag nests at the pad corners as starter cover.
     for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {
@@ -298,6 +326,19 @@ export class MapBuilder {
       const z = sz * (p - 3);
       this.solid(x, 0, z + sz * 1.2, 3, 0.8, 0.8, COLORS.sandbag);
       this.solid(x + sx * 1.2, 0, z - sz * 0.6, 0.8, 0.8, 2.2, COLORS.sandbag);
+    }
+
+    // Wood piles in the clearing ring around the pad so building can start right away.
+    const ring = { minX: 0, minZ: 0, w: 6, d: 6 };
+    let placed = 0;
+    for (let i = 0; i < 60 && placed < LOOT.woodpilesNearBase; i++) {
+      const a = this.lootRng.range(0, Math.PI * 2);
+      const r = this.lootRng.range(p + 3, WORLD.baseClearing - 4);
+      ring.minX = Math.cos(a) * r - 3;
+      ring.minZ = Math.sin(a) * r - 3;
+      const before = this.lootSpots.length;
+      this.tryLoot('woodpile', ring, 0);
+      if (this.lootSpots.length > before) placed++;
     }
   }
 
@@ -326,6 +367,11 @@ export class MapBuilder {
     const offset = this.rng.range(-0.3, 0.3);
     this.solid(x, 0, z, lx, 1.05, lz, body);
     this.solid(vertical ? x : x + offset, 1.05, vertical ? z + offset : z, cx, 0.6, cz, COLORS.carGlass);
+    if (this.lootRng.chance(LOOT.carChance)) {
+      // Searchable bag on the car's rear deck.
+      const back = 1.7 - offset * 0.5;
+      this.lootSpots.push({ kind: 'car', x: vertical ? x : x - back, y: 1.05, z: vertical ? z - back : z, turned: vertical });
+    }
   }
 
   /** Concrete barriers partially blocking the roads that lead into the base clearing. */

@@ -15,6 +15,8 @@ export interface RayHit {
   nx: number;
   ny: number;
   nz: number;
+  /** Collider id that was hit (World.raycast), -1 for the ground plane. */
+  id: number;
 }
 
 /** Slab test. Returns the entry distance (writing the face normal into `out`), or -1 on a miss.

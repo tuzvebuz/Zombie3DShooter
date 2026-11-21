@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAMERA, COLORS, COMBAT, FX, PLAYER } from '../config';
+import { CAMERA, COLORS, COMBAT, FX, GRENADE, MELEE, PLAYER } from '../config';
 import { AudioEngine } from '../core/AudioEngine';
 import { EventBus } from '../core/EventBus';
 import { Input } from '../core/Input';
@@ -10,9 +10,12 @@ import { PlayerController } from '../player/PlayerController';
 import { HUD } from '../ui/HUD';
 import { Ray, RayHit } from '../world/Ray';
 import { World } from '../world/World';
-import { AmmoPool } from './AmmoPool';
+import { Inventory } from '../items/Inventory';
 import { AssaultRifle } from './AssaultRifle';
+import { Grenades } from './Grenades';
+import { Hammer } from './Hammer';
 import { Pistol } from './Pistol';
+import { Shotgun } from './Shotgun';
 import { Viewmodel } from './Viewmodel';
 import { Weapon } from './Weapon';
 
@@ -32,13 +35,20 @@ export interface WeaponDeps {
   camera: THREE.PerspectiveCamera;
   scene: THREE.Scene;
   events: EventBus;
+  inventory: Inventory;
+  grenades: Grenades;
 }
 
 export class WeaponManager {
-  readonly weapons: Weapon[] = [new Pistol(), new AssaultRifle()];
-  readonly ammo = new AmmoPool();
-  /** Global damage multiplier (workbench upgrades, milestone 6). */
+  readonly weapons: Weapon[] = [new Pistol(), new AssaultRifle(), new Shotgun(), new Hammer()];
+  /** Global gun damage multiplier (workbench upgrades). */
   damageMul = 1;
+  /** Weapon lowered and unusable (build mode, menus). */
+  holstered = false;
+
+  private holster = 0;
+  private grenadeCooldown = 0;
+  private swingTimer = -1;
 
   private index = 0;
   private target = 0;
@@ -52,7 +62,7 @@ export class WeaponManager {
   private readonly muzzleLight: THREE.PointLight;
 
   private readonly ray: Ray = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 };
-  private readonly worldHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+  private readonly worldHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0, id: -1 };
   private readonly targetHit: TargetHit = { t: 0, headshot: false };
   private readonly eye = new THREE.Vector3();
   private readonly fwd = new THREE.Vector3();
@@ -75,6 +85,15 @@ export class WeaponManager {
     return this.weapons[this.index];
   }
 
+  get hammerEquipped(): boolean {
+    return this.phase === 'idle' && !this.holstered && !!this.current.def.melee;
+  }
+
+  /** Equips a slot by index (also used by the hotbar). */
+  equip(i: number): void {
+    this.select(i);
+  }
+
   /** Back to the starting loadout (restart). */
   reset(): void {
     for (const w of this.weapons) {
@@ -83,7 +102,11 @@ export class WeaponManager {
       w.cooldown = 0;
       w.spread = w.def.spread.base;
     }
-    this.ammo.reset();
+    this.damageMul = 1;
+    this.holstered = false;
+    this.holster = 0;
+    this.swingTimer = -1;
+    this.grenadeCooldown = 0;
     this.index = this.target = 0;
     this.phase = 'idle';
     this.switchTimer = 0;
@@ -93,6 +116,21 @@ export class WeaponManager {
   }
 
   tick(dt: number, input: Input): void {
+    const h = dt / COMBAT.switchLowerTime;
+    this.holster = this.holstered ? Math.min(1, this.holster + h) : Math.max(0, this.holster - h);
+    this.grenadeCooldown -= dt;
+    const w = this.current;
+    const p = this.d.player;
+
+    if (this.holstered) {
+      p.aiming = false;
+      w.reloadTimer = 0;
+      this.ads = Math.max(0, this.ads - dt / w.def.adsTime);
+      this.swingTimer = -1;
+      this.recoverRecoil(dt);
+      return;
+    }
+
     for (let i = 0; i < this.weapons.length; i++) {
       if (input.wasPressed(`Digit${i + 1}`)) this.select(i);
     }
@@ -102,9 +140,12 @@ export class WeaponManager {
       this.select((this.target + (wheel > 0 ? 1 : -1) + n) % n);
     }
     this.updateSwitch(dt);
+    if (input.wasPressed('KeyG')) this.throwGrenade();
 
-    const w = this.current;
-    const p = this.d.player;
+    if (w.def.melee) {
+      this.tickMelee(dt, input);
+      return;
+    }
     p.aiming = input.isDown('Mouse2') && this.phase === 'idle';
 
     if (p.sprinting) {
@@ -143,14 +184,86 @@ export class WeaponManager {
     }
 
     // Auto-reload once the last round has cycled.
-    if (w.mag === 0 && !w.reloading && w.cooldown <= 0) this.startReload();
+    if (!w.def.melee && w.mag === 0 && !w.reloading && w.cooldown <= 0) this.startReload();
 
+    this.recoverRecoil(dt);
+  }
+
+  private recoverRecoil(dt: number): void {
+    const p = this.d.player;
     this.sinceShot += dt;
     if (this.sinceShot > COMBAT.recoilRecoverDelay) {
-      const f = Math.exp(-w.def.recoil.recoverySpeed * dt);
+      const f = Math.exp(-this.current.def.recoil.recoverySpeed * dt);
       p.recoil.pitch *= f;
       p.recoil.yaw *= f;
     }
+  }
+
+  private tickMelee(dt: number, input: Input): void {
+    const w = this.current;
+    const p = this.d.player;
+    p.aiming = false;
+    this.ads = 0;
+    w.update(dt);
+    if (input.wasPressed('Mouse0')) this.queuedClick = COMBAT.semiAutoBuffer;
+    this.queuedClick -= dt;
+    const ready = this.phase === 'idle' && !p.sprinting;
+    if (this.queuedClick > 0 && ready && w.cooldown <= 0) {
+      this.queuedClick = 0;
+      w.cooldown += 60 / w.def.rpm;
+      this.swingTimer = MELEE.hitDelay;
+      this.d.viewmodel.kick(w.def.kickBack, w.def.kickRot, false);
+      this.d.audio.play('swing');
+    }
+    if (this.swingTimer >= 0) {
+      this.swingTimer -= dt;
+      if (this.swingTimer < 0) this.meleeHit();
+    }
+    this.recoverRecoil(dt);
+  }
+
+  private meleeHit(): void {
+    const d = this.d;
+    const def = this.current.def;
+    d.player.getEye(this.eye);
+    d.player.getAimBasis(this.fwd, this.right, this.up);
+    const r = this.ray;
+    r.ox = this.eye.x;
+    r.oy = this.eye.y;
+    r.oz = this.eye.z;
+    r.dx = this.fwd.x;
+    r.dy = this.fwd.y;
+    r.dz = this.fwd.z;
+    let maxT = def.range;
+    if (d.world.raycast(r, maxT, this.worldHit)) maxT = this.worldHit.t;
+    const target = d.hits.raycast(r, maxT, this.targetHit);
+    if (target) {
+      this.end.copy(this.eye).addScaledVector(this.fwd, this.targetHit.t);
+      const head = this.targetHit.headshot;
+      const killed = target.applyHit(def.damage * (head ? COMBAT.headMul : 1), head, this.fwd);
+      this.normal.copy(this.fwd).negate();
+      d.particles.burst(this.end, this.normal, target.impactColor, 8, 2);
+      d.hud.hit(killed ? 'kill' : 'hit', head);
+      d.audio.play(head ? 'headshot' : killed ? 'kill' : 'hit');
+    } else if (maxT < def.range) {
+      this.end.copy(this.eye).addScaledVector(this.fwd, maxT);
+      this.normal.set(this.worldHit.nx, this.worldHit.ny, this.worldHit.nz);
+      d.particles.burst(this.end, this.normal, COLORS.dust, 5, 2);
+      d.audio.play('repair');
+    }
+  }
+
+  private throwGrenade(): void {
+    const d = this.d;
+    if (this.grenadeCooldown > 0 || d.player.sprinting || d.inventory.count('grenade') === 0) return;
+    d.player.getEye(this.eye);
+    d.player.getAimBasis(this.fwd, this.right, this.up);
+    if (!d.grenades.throw(this.eye, this.fwd, d.player.velocity)) return;
+    d.inventory.remove('grenade', 1);
+    this.grenadeCooldown = GRENADE.cooldown;
+    this.current.reloadTimer = 0;
+    d.viewmodel.kick(-0.05, -0.4, false);
+    d.audio.play('throw');
   }
 
   /** Per-frame visuals: FOV, viewmodel, crosshair, HUD. */
@@ -174,17 +287,19 @@ export class WeaponManager {
       mouseDy,
       sprinting: p.sprinting,
       reload: w.reloadProgress,
-      lowered: this.lowered(),
+      lowered: Math.max(this.lowered(), this.holster),
     });
 
     const spread = this.effectiveSpread();
     const gap = (Math.tan(spread) / Math.tan(THREE.MathUtils.degToRad(fov) / 2)) * (window.innerHeight / 2);
-    this.d.hud.setCrosshair(gap + COMBAT.crosshairMinGap, a < 0.5 && !p.sprinting);
+    this.d.hud.setCrosshair(gap + COMBAT.crosshairMinGap, a < 0.5 && !p.sprinting && !this.holstered);
 
     const reserve = this.reserve(w);
-    this.d.hud.setAmmo(w.def.name, w.mag, reserve, w.def.magSize);
+    this.d.hud.setAmmo(w.def.name, w.def.melee ? null : w.mag, reserve, w.def.magSize);
+    this.d.hud.setActiveSlot(this.holstered ? -1 : this.target);
     let hint = '';
-    if (w.reloading) hint = 'RELOADING';
+    if (w.def.melee) hint = '';
+    else if (w.reloading) hint = 'RELOADING';
     else if (w.mag === 0 && reserve === 0) hint = 'NO AMMO';
     else if (w.mag <= Math.ceil(w.def.magSize * 0.25)) hint = '[R] RELOAD';
     this.d.hud.setHint(hint);
@@ -227,13 +342,13 @@ export class WeaponManager {
   }
 
   private reserve(w: Weapon): number | null {
-    return w.def.ammo === null ? null : this.ammo.get(w.def.ammo);
+    return w.def.ammo === null ? null : this.d.inventory.count(w.def.ammo);
   }
 
   private startReload(): void {
     const w = this.current;
     const reserve = this.reserve(w);
-    if (w.reloading || w.mag >= w.def.magSize || reserve === 0) return;
+    if (w.def.melee || w.reloading || w.mag >= w.def.magSize || reserve === 0) return;
     if (this.d.player.sprinting || this.phase !== 'idle') return;
     w.reloadTimer = w.def.reloadTime;
     this.d.audio.play('reloadStart');
@@ -242,7 +357,7 @@ export class WeaponManager {
   private finishReload(w: Weapon): void {
     w.reloadTimer = 0;
     const need = w.def.magSize - w.mag;
-    w.mag += w.def.ammo === null ? need : this.ammo.take(w.def.ammo, need);
+    w.mag += w.def.ammo === null ? need : this.d.inventory.remove(w.def.ammo, need);
     this.d.audio.play('reloadEnd');
   }
 

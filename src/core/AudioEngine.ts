@@ -10,10 +10,30 @@ export type SoundName =
   | 'hit'
   | 'kill'
   | 'headshot'
-  | 'playerHurt';
+  | 'playerHurt'
+  | 'shotgun'
+  | 'swing'
+  | 'throw'
+  | 'loot'
+  | 'pickup'
+  | 'medkit'
+  | 'build'
+  | 'denied'
+  | 'uiClick'
+  | 'upgrade'
+  | 'repair';
 
 /** Sounds that come from a point in the world and are panned/attenuated in 3D. */
-export type PositionalSoundName = 'groan' | 'zombieAttack' | 'zombieHit' | 'zombieDeath';
+export type PositionalSoundName =
+  | 'groan'
+  | 'zombieAttack'
+  | 'zombieHit'
+  | 'zombieDeath'
+  | 'explosion'
+  | 'turret'
+  | 'structureHit'
+  | 'structureBreak'
+  | 'gate';
 
 /** All sounds are synthesized with WebAudio: oscillators plus a cached white-noise buffer. */
 export class AudioEngine {
@@ -110,6 +130,49 @@ export class AudioEngine {
         this.tone(now, out, 'sine', 140, 60, 0.18, 0.8);
         duration = this.noiseBurst(now, out, 'lowpass', 900, 0.15, 0.5);
         break;
+      case 'shotgun':
+        this.gunshot(now, out, 900, 0.28, 90, 1.25);
+        duration = this.noiseBurst(now + 0.32, out, 'bandpass', 1400, 0.06, 0.4) + 0.32; // pump
+        this.noiseBurst(now + 0.42, out, 'bandpass', 2200, 0.05, 0.35);
+        break;
+      case 'swing':
+        duration = this.noiseBurst(now, out, 'bandpass', 900, 0.16, 0.35);
+        break;
+      case 'throw':
+        duration = this.noiseBurst(now, out, 'bandpass', 600, 0.2, 0.3);
+        break;
+      case 'loot':
+        this.noiseBurst(now, out, 'bandpass', 1200, 0.08, 0.3);
+        this.tone(now + 0.05, out, 'triangle', 660, 660, 0.08, 0.15);
+        duration = this.tone(now + 0.12, out, 'triangle', 990, 990, 0.12, 0.15) + 0.12;
+        break;
+      case 'pickup':
+        duration = this.tone(now, out, 'triangle', 880, 1320, 0.08, 0.15);
+        break;
+      case 'medkit':
+        this.noiseBurst(now, out, 'highpass', 2500, 0.25, 0.2);
+        duration = this.tone(now + 0.1, out, 'sine', 520, 780, 0.3, 0.2) + 0.1;
+        break;
+      case 'build':
+        this.tone(now, out, 'sine', 160, 70, 0.12, 0.7);
+        this.noiseBurst(now, out, 'lowpass', 1500, 0.1, 0.5);
+        duration = this.noiseBurst(now + 0.12, out, 'bandpass', 2400, 0.05, 0.3) + 0.12;
+        break;
+      case 'denied':
+        duration = this.tone(now, out, 'square', 180, 150, 0.15, 0.12);
+        break;
+      case 'uiClick':
+        duration = this.tone(now, out, 'triangle', 1500, 1500, 0.03, 0.12);
+        break;
+      case 'upgrade':
+        this.tone(now, out, 'triangle', 523, 523, 0.15, 0.2);
+        this.tone(now + 0.1, out, 'triangle', 659, 659, 0.15, 0.2);
+        duration = this.tone(now + 0.2, out, 'triangle', 784, 784, 0.3, 0.2) + 0.2;
+        break;
+      case 'repair':
+        this.tone(now, out, 'square', 900, 500, 0.04, 0.12);
+        duration = this.noiseBurst(now, out, 'bandpass', 3000, 0.05, 0.35);
+        break;
     }
     this.voiceEnds.push(now + duration);
   }
@@ -149,6 +212,26 @@ export class AudioEngine {
         break;
       case 'zombieDeath':
         duration = this.groan(now, panner, 110 * pitch, 1.1, 0.45, 0.45);
+        break;
+      case 'explosion':
+        this.noiseBurst(now, panner, 'lowpass', 600, 1.1, 1.6);
+        this.noiseBurst(now, panner, 'highpass', 2000, 0.12, 0.8);
+        duration = this.tone(now, panner, 'sine', 90, 30, 0.9, 1.6);
+        break;
+      case 'turret':
+        duration = this.gunshot(now, panner, 1800, 0.1, 160, 0.7);
+        break;
+      case 'structureHit':
+        this.tone(now, panner, 'sine', 120 * pitch, 70, 0.12, 0.7);
+        duration = this.noiseBurst(now, panner, 'lowpass', 1100, 0.14, 0.7);
+        break;
+      case 'structureBreak':
+        this.noiseBurst(now, panner, 'lowpass', 800, 0.7, 1.2);
+        duration = this.tone(now, panner, 'sine', 110, 40, 0.5, 1);
+        break;
+      case 'gate':
+        this.noiseBurst(now, panner, 'bandpass', 500, 0.35, 0.5);
+        duration = this.tone(now, panner, 'sawtooth', 70, 60, 0.3, 0.15);
         break;
     }
     this.voiceEnds.push(now + duration);

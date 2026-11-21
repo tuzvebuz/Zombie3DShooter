@@ -8,8 +8,14 @@ import { PlayerController } from '../player/PlayerController';
 import { boxFromBase } from '../world/AABB';
 import { Ray, RayHit } from '../world/Ray';
 import { World } from '../world/World';
-import { Zombie, ZombieContext, ZombieHooks } from './Zombie';
+import { SmashTarget, Zombie, ZombieContext, ZombieHooks } from './Zombie';
 import { ZombieRenderer } from './ZombieRenderer';
+
+/** What zombies need to know about player structures (implemented via StructureManager). */
+export interface StructureLink {
+  structureAt(colliderId: number): SmashTarget | null;
+  damage(target: SmashTarget, amount: number): void;
+}
 
 export interface ZombieDeps {
   scene: THREE.Scene;
@@ -30,8 +36,9 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
 
   private readonly renderer: ZombieRenderer;
   private respawnTimer = 0;
+  structures: StructureLink | null = null;
   private readonly ray: Ray = { ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 };
-  private readonly rayHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+  private readonly rayHit: RayHit = { t: 0, nx: 0, ny: 0, nz: 0, id: -1 };
 
   constructor(private readonly d: ZombieDeps) {
     this.world = d.world;
@@ -105,6 +112,33 @@ export class ZombieManager implements ZombieContext, ZombieHooks {
     this.d.health.takeDamage(z.type.damage, z.pos.x, z.pos.z);
     this.d.audio.playAt('zombieAttack', z.head.x, z.head.y, z.head.z, this.pitchOf(z));
     this.d.audio.play('playerHurt');
+  }
+
+  structureAt(colliderId: number): SmashTarget | null {
+    return colliderId >= 0 && this.structures ? this.structures.structureAt(colliderId) : null;
+  }
+
+  hitStructure(z: Zombie, target: SmashTarget): void {
+    this.structures?.damage(target, z.type.damage * z.type.structureMul);
+  }
+
+  /** Radial damage (grenades) with line of sight; returns kills and whether anything was hit. */
+  explode(x: number, y: number, z: number, radius: number, maxDamage: number): { hits: number; kills: number } {
+    let hits = 0;
+    let kills = 0;
+    const dir = new THREE.Vector3();
+    const target = new THREE.Vector3();
+    for (const zb of this.zombies) {
+      if (!zb.alive) continue;
+      target.set(zb.pos.x, zb.pos.y + 1, zb.pos.z);
+      const dist = Math.hypot(target.x - x, target.y - y, target.z - z);
+      if (dist > radius || !this.lineOfSight(x, y, z, target)) continue;
+      dir.set(target.x - x, 0.3, target.z - z).normalize();
+      hits++;
+      if (zb.applyHit(maxDamage * (1 - dist / radius), false, dir)) kills++;
+    }
+    this.alertNear(x, z, radius * 5);
+    return { hits, kills };
   }
 
   // ------------------------------------------------------------------ ZombieHooks
